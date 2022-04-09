@@ -44,16 +44,13 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 	strcat(shmfile, tablemeta->table_name);
 	strcat(shmfile, ".shm");
 
-	printf("Checking path %s\n", diskfile);
-
 	size_t fs = initialize_file(diskfile, metadatazie + data_size, &fd);
 
 	if ( (dbfile = mmap(NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED ) {
 		fprintf(stderr, "Unable to map file to memory\n");
 		fprintf(stderr, "Error: %s\n", strerror(errno));
 		return rv;
-	} else {
-		printf("Mapped %ld bytes to fd %d\n", fs, fd);
+
 	}
 
 	mt = dbfile;
@@ -75,6 +72,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 	}
 
 	if ( mt->total_record_count == 0 ) {
+		printf("Initializing table %s\n", tablemeta->table_name);
 		strcpy(mt->table_name, tablemeta->table_name);
 		mt->record_size = tablemeta->record_size;
 		mt->total_record_count = tablemeta->total_record_count;
@@ -103,6 +101,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 
 		offset += sizeof(uint64_t) * tablemeta->total_record_count;
 		mt->data = (void *) (offset);
+		printf("Opened table %s\n", mt->table_name);
 
 	}
 
@@ -113,15 +112,30 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 	free(diskfile);
 	free(shmfile);
 	free(table_file_name);
-
 	return rv;
 }
 
 int close_table(table_t *mapped_table) {
 	int rv = 0, fd = mapped_table->filedes;
 	size_t fs = mapped_table->filesize;
+	size_t tnsz = sizeof(char) * strlen(mapped_table->table_name) + 5;
+
+	printf("Closing table %s\n", mapped_table->table_name);
+
+	char *tpth = 0;
+	if ( (tpth = getenv("TABLE_DATA")) == NULL )
+		tpth = DEFAULT_BASE;
+
+	char *tn = malloc(tnsz);
+	bzero(tn, tnsz);
+	strcpy(tn, mapped_table->table_name);
+	strcat(tn, ".shm");
 
 	munmap(mapped_table, fs);
 	close(fd);
+
+	move_and_replace_file(DEFAULT_SHM, tpth, tn);
+
+	free(tn);
 	return rv;
 }

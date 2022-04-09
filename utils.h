@@ -18,5 +18,6 @@
 
 size_t initialize_file(char *filepath, size_t sz, int *rfd);
 int copy_and_replace_file(char *src_path, char *dst_path, char *filename);
+int move_and_replace_file(char *src_path, char *dst_path, char *filename);
 
 #endif /* UTILS_H_ */

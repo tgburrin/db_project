@@ -314,9 +314,8 @@ int main (int argc, char **argv) {
 	strcpy(orders_table.table_name, "orders");
 
 	open_table(&orders_table, &ot);
-	close_table(&ot);
-
 	printf("Table %s opened\n", ot->table_name);
+	close_table(ot);
 
 	exit(EXIT_SUCCESS);
 }

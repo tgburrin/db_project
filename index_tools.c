@@ -317,7 +317,7 @@ bool add_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 	if ( (void *)idxnode->parent == (void *)idxnode ) {
 		char strkey[64];
 		(*idx->print_key)(key, strkey);
-		printf("Attempting to add %s to index\n", strkey);
+
 	}
 
 	if ( idxnode->is_leaf ) {
@@ -572,7 +572,6 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 bool remove_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 		char msg[64];
 		(*idx->print_key)(key, msg);
-		printf("Attempting to remove index value %s\n", msg);
 
 		idxnode_t *leaf_node = find_node(idx, idxnode, key);
 		bool success = remove_node_value(idx, leaf_node, key);
