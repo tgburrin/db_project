@@ -11,8 +11,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <string.h>
+
+#include "utils.h"
 
 //#define IDX_ORDER 5
 #define IDX_ORDER 3
@@ -40,6 +43,9 @@ typedef void * (*get_key_value_f)(void *);
 typedef void (*print_key_f)(void *, char *);
 
 typedef struct Index {
+	char index_name[64];
+	uint16_t record_size;
+
 	bool is_unique;
 	idxnode_t root_node;
 	compare_key_f compare_key;
@@ -54,7 +60,6 @@ void init_index_node(idxnode_t *idxnode);
 int num_child_records(index_t *idx, idxnode_t *idxnode);
 idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, void *find_rec);
 void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec);
-void print_tree(index_t *idx, idxnode_t *idxnode, int *counter);
 
 idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key);
 idxnode_t *add_node_value (index_t *idx, idxnode_t *idxnode, void *key);
@@ -65,5 +70,10 @@ void update_max_value (index_t *idx, idxnode_t *parent_idx, idxnode_t *idxnode, 
 void collapse_nodes(index_t *idx, idxnode_t *idxnode);
 bool remove_index_value (index_t *idx, idxnode_t *idxnode, void *key);
 void release_tree(index_t *idx, idxnode_t *idxnode);
+
+void read_index_from_file(index_t *idx);
+void write_file_from_index(index_t *idx);
+
+void print_tree(index_t *idx, idxnode_t *idxnode, int *counter);
 
 #endif /* INDEX_TOOLS_H_ */

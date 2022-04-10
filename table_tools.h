@@ -22,9 +22,6 @@
 
 #include "utils.h"
 
-#define DEFAULT_BASE "/data/tables"
-#define DEFAULT_SHM "/dev/shm"
-
 typedef struct TableBase table_t;
 
 typedef uint64_t (*add_record_f)(table_t *, void *);
@@ -33,8 +30,8 @@ typedef bool (*delete_record_f)(table_t *, uint64_t, void *);
 
 typedef struct TableBase {
 	char table_name[64];
-	uint8_t header_size;
-	uint8_t record_size;
+	uint16_t header_size;
+	uint16_t record_size;
 	uint64_t total_record_count;
 	uint64_t free_record_slot;
 
@@ -51,5 +48,6 @@ typedef struct TableBase {
 } table_t;
 
 int open_table(table_t *tablemeta, table_t **mapped_table);
+int close_table(table_t *mapped_table);
 
 #endif /* TABLE_TOOLS_H_ */

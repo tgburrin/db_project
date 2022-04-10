@@ -12,7 +12,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 	int fd = -1;
 	void *dbfile;
 	table_t *mt;
-	char *tpth, *shmpth, *table_file_name;
+	char *tpth, *table_file_name;
 
 	table_file_name = malloc(sizeof(char) * (strlen(tablemeta->table_name) + 5));
 	bzero(table_file_name, sizeof(char) * (strlen(tablemeta->table_name) + 5));
@@ -74,6 +74,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 	if ( mt->total_record_count == 0 ) {
 		printf("Initializing table %s\n", tablemeta->table_name);
 		strcpy(mt->table_name, tablemeta->table_name);
+		mt->header_size = tablemeta->header_size;
 		mt->record_size = tablemeta->record_size;
 		mt->total_record_count = tablemeta->total_record_count;
 		mt->free_record_slot = tablemeta->total_record_count - 1;
@@ -126,7 +127,7 @@ int close_table(table_t *mapped_table) {
 
 	printf("Closing table %s\n", mapped_table->table_name);
 
-	char *tpth = 0;
+	char *tpth = NULL;
 	if ( (tpth = getenv("TABLE_DATA")) == NULL )
 		tpth = DEFAULT_BASE;
 

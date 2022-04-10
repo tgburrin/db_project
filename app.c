@@ -120,18 +120,45 @@ void * read_order_record(table_t *ot, uint64_t slot) {
 }
 
 uint64_t add_order(table_t *ot, index_t *idx, order_t *o) {
-	uint64_t rec_num = add_order_record(ot, o);
-
+	uint64_t rec_num = UINT64_MAX;
 	idxordkey_t ordkey;
 	bzero(&ordkey, sizeof(idxordkey_t));
 	strcpy(ordkey.orderid, o->orderid);
+	ordkey.record = (void *)-1;
+
+	idxnode_t *idx_node = find_node(idx, &idx->root_node, &ordkey);
+	if (find_record(idx, idx_node, &ordkey) != NULL ) {
+		return rec_num;
+	}
+
+	rec_num = add_order_record(ot, o);
 	ordkey.record = (void *)rec_num;
-	add_index_value(idx, &idx->root_node, &ordkey);
+	add_index_value(idx, idx_node, &ordkey);
 
 	return rec_num;
 }
 
+bool find_order(table_t *ot, index_t *idx, order_t *o) {
+	idxordkey_t k, *kp;
+	bool rv = false;
+	bzero(&k, sizeof(k));
+	strcpy(&k.orderid, o->orderid);
+	k.record = (void *)-1;
+	if ((kp = find_record(idx, &idx->root_node, &k)) != NULL) {
+		uint64_t slot = (uint64_t)((*idx->get_key_value)(kp));
+		order_t *fo = read_order_record(ot, slot);
+		memcpy(o, fo, sizeof(order_t));
+		rv = true;
+	}
+	return rv;
+}
+
 void init_order_id_index(index_t *idx) {
+	bzero(idx, sizeof(index_t));
+
+	strcpy(idx->index_name, "order_id_uq");
+	idx->record_size = sizeof(idxordkey_t);
+
 	idx->is_unique = true;
 	init_index_node(&idx->root_node);
 	idx->compare_key = &compare_order_id;
@@ -146,11 +173,15 @@ void init_order_id_index(index_t *idx) {
 
 int main (int argc, char **argv) {
 	index_t i;
+	int counter = 0;
+
 	init_order_id_index(&i);
+	read_index_from_file(&i);
 
 	table_t orders_table;
 	table_t *ot;
 	bzero(&orders_table, sizeof(table_t));
+	orders_table.header_size = sizeof(table_t);
 	orders_table.record_size = sizeof(order_t);
 	orders_table.total_record_count = NUM_ORDERS;
 	strcpy(orders_table.table_name, "orders");
@@ -163,19 +194,27 @@ int main (int argc, char **argv) {
 
 	order_t o;
 	bzero(&o, sizeof(o));
+	strcpy(o.orderid, "OR0000000000000000000001\0");
 
+	/*
 	strcpy(o.orderid, "OR0000000000000000000001\0");
 	strcpy(o.productid, "MSFT\0");
 	o.quantity = 100;
-	o.cost = 14000;
+	o.cost = 29697;
 	o.direction = 'S';
 
 	uint64_t sn = add_order(ot, &i, &o);
 	printf("Record added to slot %" PRIu64 "\n", sn);
 	//uint64_t sn = 0;
 	order_t *rv = read_order_record(ot, sn);
+	*/
+	find_order(ot, &i, &o);
+	order_t *rv = &o;
 	printf("Order read is %s (%s)\n", rv->orderid, rv->productid);
+	counter = 0;
+	print_tree(&i, &i.root_node, &counter);
 	close_table(ot);
+	write_file_from_index(&i);
 
 	exit(EXIT_SUCCESS);
 }

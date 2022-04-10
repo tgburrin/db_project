@@ -49,7 +49,7 @@ idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, void *find_rec) {
 
 void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec) {
 		char msg[64];
-		void *rv = 0;
+		void *rv = NULL;
 
 		(*idx->print_key)(find_rec, msg);
 		//printf("Finding record %s\n", msg);
@@ -94,28 +94,6 @@ void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec) {
 		*/
 		}
 		return rv;
-}
-
-void print_tree(index_t *idx, idxnode_t *idxnode, int *counter) {
-	idxnode_t *s = idxnode;
-	int page = 1;
-
-	printf("Level %d:", *counter);
-	do {
-		for(int i=0; i < idxnode->num_children; i++) {
-			// This is hardcoded and shouldn't be
-			char strkey[64];
-			(*idx->print_key)(idxnode->children[i], strkey);
-			printf(" %s (%s %d)", strkey, idxnode->is_leaf ? "leaf" : "node", page);
-		}
-		idxnode = (idxnode_t *)idxnode->next;
-		page++;
-	} while ( idxnode != NULL );
-	printf("\n");
-
-	(*counter)++;
-	if ( !s->is_leaf )
-		print_tree(idx, (*idx->get_key_value)(s->children[0]), counter);
 }
 
 idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key) {
@@ -283,9 +261,7 @@ idxnode_t *add_node_value (index_t *idx,idxnode_t *idxnode, void *key) {
 		idxnode = split_node(idx, idxnode, key);
 
  	int i = 0;
-	void *c = NULL;
-	for( i=0; i < idxnode->num_children && (*idx->compare_key)(idxnode->children[i], key) < 0; i++ )
-		c = idxnode->children[i];
+	for( i=0; i < idxnode->num_children && (*idx->compare_key)(idxnode->children[i], key) < 0; i++ );
 
 	if(i < idxnode->num_children) {
 		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(void *) * (idxnode->num_children - i));
@@ -339,7 +315,6 @@ bool add_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 		rv = true;
 	} else {
 		int index = 0, i;
-		void *c = NULL;
 
 		/*
 		check the middle-ish node to see if our id is higher or lower than that and
@@ -353,13 +328,11 @@ bool add_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 			if ( (*idx->compare_key)(idxnode->children[i], key) < 0 ) {
 				for ( ; i < idxnode->num_children; i++ ) {
 					index = i;
-					c = idxnode->children[i];
 					if ( (*idx->compare_key)(idxnode->children[i], key) > 0 )
 						break;
 				}
 			} else {
 				for ( ; i >= 0; --i ) {
-					c = idxnode->children[i];
 					if ( (*idx->compare_key)(idxnode->children[i], key) < 0 )
 						break;
 
@@ -569,6 +542,107 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 	return success;
 }
 
+void read_index_from_file(index_t *idx) {
+	char *ipth;
+	if ( (ipth = getenv("TABLE_DATA")) == NULL )
+		ipth = DEFAULT_BASE;
+
+	int fd = -1;
+	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
+
+	// path + '/' + name + '.idx' + \0
+	char *idxfile = malloc(sz);
+	strcat(idxfile, ipth);
+	strcat(idxfile, "/");
+	strcat(idxfile, idx->index_name);
+	strcat(idxfile, ".idx");
+
+	printf("Reading keys from file %s\n", idxfile);
+	int i = access(idxfile, F_OK);
+	if ( i < 0 && errno != ENOENT ) {
+		// handle error
+	}
+	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
+		uint16_t recordsize = 0;
+		uint64_t recordcount = 0;
+		uint64_t counter = 0;
+
+		if ( read(fd, &recordsize, sizeof(uint16_t)) != sizeof(uint16_t) ) {
+			//error
+		}
+		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) ) {
+			//error
+		}
+		printf("%" PRIu64 " records of size %"PRIu16" exist in index file\n", recordcount, recordsize);
+		void *buff = malloc(sizeof(char)*recordsize);
+		for(counter = 0; counter < recordcount; counter++) {
+			bzero(buff, sizeof(char)*recordsize);
+			if ( read(fd, buff, recordsize) != recordsize ) {
+				//
+			} else {
+				add_index_value(idx, &idx->root_node, buff);
+			}
+		}
+		free(buff);
+	}
+
+	free(idxfile);
+}
+
+void write_file_from_index(index_t *idx) {
+	int fd = -1;
+	char *ipth;
+	uint16_t recordsize = idx->record_size;
+
+	void *buffer = malloc(sizeof(char)*recordsize);
+
+	if ( (ipth = getenv("TABLE_DATA")) == NULL )
+		ipth = DEFAULT_BASE;
+
+	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
+
+	// path + '/' + name + '.idx' + \0
+	char *idxfile = malloc(sz);
+	strcat(idxfile, ipth);
+	strcat(idxfile, "/");
+	strcat(idxfile, idx->index_name);
+	strcat(idxfile, ".idx");
+
+	printf("Writing keys to file %s\n", idxfile);
+	int i = access(idxfile, F_OK);
+	if ( i < 0 && errno != ENOENT ) {
+		// handle error
+	}
+
+	if ( (fd = open(idxfile, O_CREAT | O_RDWR | O_TRUNC, 0640)) >= 0 ) {
+		idxnode_t *cn = &idx->root_node;
+
+		while(!cn->is_leaf)
+			cn = (idxnode_t *)((*idx->get_key_value)(cn->children[0]));
+
+		uint64_t recordcount = 0;
+
+		write(fd, &recordsize, sizeof(recordsize));
+		write(fd, &recordcount, sizeof(recordcount));
+		while ( cn != NULL ) {
+			for(i = 0; i < cn->num_children; i++) {
+				bzero(buffer, sizeof(char)*recordsize);
+				memcpy(buffer, cn->children[i], sizeof(char)*recordsize);
+				write(fd, buffer, sizeof(char)*recordsize);
+				recordcount++;
+			}
+			cn = (idxnode_t *)cn->next;
+		}
+		lseek(fd, sizeof(recordsize), SEEK_SET);
+		write(fd, &recordcount, sizeof(recordcount));
+		close(fd);
+
+		printf("%" PRIu64 " records of size %"PRIu16" written\n", recordcount, recordsize);
+	}
+	free(idxfile);
+	free(buffer);
+}
+
 bool remove_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 		char msg[64];
 		(*idx->print_key)(key, msg);
@@ -597,4 +671,26 @@ void release_tree(index_t *idx, idxnode_t *idxnode) {
 			free(idxnode->children[i]);
 		idxnode->num_children = 0;
 	}
+}
+
+void print_tree(index_t *idx, idxnode_t *idxnode, int *counter) {
+	idxnode_t *s = idxnode;
+	int page = 1;
+
+	printf("Level %d:", *counter);
+	do {
+		for(int i=0; i < idxnode->num_children; i++) {
+			// This is hardcoded and shouldn't be
+			char strkey[64];
+			(*idx->print_key)(idxnode->children[i], strkey);
+			printf(" %s (%s %d)", strkey, idxnode->is_leaf ? "leaf" : "node", page);
+		}
+		idxnode = (idxnode_t *)idxnode->next;
+		page++;
+	} while ( idxnode != NULL );
+	printf("\n");
+
+	(*counter)++;
+	if ( !s->is_leaf )
+		print_tree(idx, (*idx->get_key_value)(s->children[0]), counter);
 }

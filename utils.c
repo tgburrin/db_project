@@ -44,7 +44,7 @@ size_t initialize_file(char *filepath, size_t sz, int *rfd) {
 }
 
 int copy_and_replace_file(char *src_path, char *dst_path, char *filename) {
-	int rv = 0, rfd, wfd;
+	int rv = 0, rfd = -1, wfd = -1;
 	char *src_file, *dst_file;
 	void *buffer;
 	size_t sfile = strlen(src_path) + strlen(filename) + sizeof(char)*2;
