@@ -27,20 +27,23 @@
 
 typedef struct TableBase table_t;
 
-typedef void *(*add_record_f)(table_t *, void *);
-typedef void *(*find_record_f)(table_t *, void *);
-typedef void *(*delete_record_f)(table_t *, void *);
+typedef uint64_t (*add_record_f)(table_t *, void *);
+typedef void *(*read_record_f)(table_t *, uint64_t);
+typedef bool (*delete_record_f)(table_t *, uint64_t, void *);
 
 typedef struct TableBase {
 	char table_name[64];
-	int filedes;
-	size_t filesize;
+	uint8_t header_size;
 	uint8_t record_size;
 	uint64_t total_record_count;
 	uint64_t free_record_slot;
 
 	add_record_f add_record;
 	delete_record_f delete_record;
+	read_record_f read_record;
+
+	int filedes;
+	size_t filesize;
 
 	uint64_t *used_slots;
 	uint64_t *free_slots;

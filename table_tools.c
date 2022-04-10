@@ -89,7 +89,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 
 		for(int i = 0; i < mt->total_record_count; i++) {
 			mt->free_slots[mt->free_record_slot - i] = i;
-			mt->used_slots[i] = -1;
+			mt->used_slots[i] = UINT64_MAX;
 		}
 
 	} else {
@@ -107,6 +107,10 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 
 	mt->filedes = fd;
 	mt->filesize = fs;
+
+	mt->add_record = tablemeta->add_record;
+	mt->delete_record = tablemeta->delete_record;
+	mt->read_record = tablemeta->read_record;
 
 	*mapped_table = mt;
 	free(diskfile);

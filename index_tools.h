@@ -16,7 +16,6 @@
 
 //#define IDX_ORDER 5
 #define IDX_ORDER 3
-#define ORDER_ID_SIZE 24
 
 typedef struct IndexKey {
 	void *record;
