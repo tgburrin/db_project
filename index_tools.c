@@ -603,6 +603,8 @@ void write_file_from_index(index_t *idx) {
 
 	// path + '/' + name + '.idx' + \0
 	char *idxfile = malloc(sz);
+	bzero(idxfile, sz);
+
 	strcat(idxfile, ipth);
 	strcat(idxfile, "/");
 	strcat(idxfile, idx->index_name);
