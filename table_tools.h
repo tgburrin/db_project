@@ -29,7 +29,7 @@ typedef void *(*read_record_f)(table_t *, uint64_t);
 typedef bool (*delete_record_f)(table_t *, uint64_t, void *);
 
 typedef struct TableBase {
-	char table_name[64];
+	char table_name[DB_OBJECT_NAME_SZ];
 	uint16_t header_size;
 	uint16_t record_size;
 	uint64_t total_record_count;

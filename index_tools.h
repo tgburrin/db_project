@@ -43,7 +43,7 @@ typedef void * (*get_key_value_f)(void *);
 typedef void (*print_key_f)(void *, char *);
 
 typedef struct Index {
-	char index_name[64];
+	char index_name[DB_OBJECT_NAME_SZ];
 	uint16_t record_size;
 
 	bool is_unique;

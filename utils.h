@@ -21,6 +21,8 @@
 #define DEFAULT_BASE "/data/tables"
 #define DEFAULT_SHM "/dev/shm"
 
+#define DB_OBJECT_NAME_SZ 64
+
 size_t initialize_file(char *filepath, size_t sz, int *rfd);
 int copy_and_replace_file(char *src_path, char *dst_path, char *filename);
 int move_and_replace_file(char *src_path, char *dst_path, char *filename);

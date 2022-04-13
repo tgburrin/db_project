@@ -163,7 +163,7 @@ uint64_t del_order(table_t *ot, index_t *idx, order_t *o) {
 		return rec_num;
 
 	rec_num = (uint64_t)((*idx->get_key_value)(ov));
-	delete_order_record(ot, rec_num, NULL);
+	(*ot->delete_record)(ot, rec_num, NULL);
 	remove_index_value(idx, &idx->root_node, ov);
 
 	return rec_num;
@@ -173,7 +173,7 @@ bool find_order(table_t *ot, index_t *idx, order_t *o) {
 	idxordkey_t k, *kp;
 	bool rv = false;
 	bzero(&k, sizeof(k));
-	strcpy(&k.orderid, o->orderid);
+	strcpy(k.orderid, o->orderid);
 	k.record = (void *)-1;
 	if ((kp = find_record(idx, &idx->root_node, &k)) != NULL) {
 		uint64_t slot = (uint64_t)((*idx->get_key_value)(kp));
@@ -189,7 +189,7 @@ uint64_t find_order_slot(table_t *ot, index_t *idx, order_t *o) {
 
 	idxordkey_t k, *kp;
 	bzero(&k, sizeof(k));
-	strcpy(&k.orderid, o->orderid);
+	strcpy(k.orderid, o->orderid);
 	k.record = (void *)-1;
 
 	if ((kp = find_record(idx, &idx->root_node, &k)) != NULL)
@@ -248,7 +248,7 @@ int main (int argc, char **argv) {
 	uint64_t sn = add_order(ot, &i, &o);
 	printf("Record added to slot %" PRIu64 "\n", sn);
 	//uint64_t sn = 0;
-	order_t *rv = read_order_record(ot, sn);
+	order_t *rv = (*ot->read_record)(ot, sn);
 
 	printf("Order read is %s (%s)\n", rv->orderid, rv->productid);
 	bzero(&o, sizeof(o));
