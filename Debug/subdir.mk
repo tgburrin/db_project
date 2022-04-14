@@ -5,19 +5,34 @@
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
 ../app.c \
+../fruit_index_test.c \
 ../index_tools.c \
+../journal_test.c \
+../journal_tools.c \
+../server_test.c \
+../server_tools.c \
 ../table_tools.c \
 ../utils.c 
 
 OBJS += \
 ./app.o \
+./fruit_index_test.o \
 ./index_tools.o \
+./journal_test.o \
+./journal_tools.o \
+./server_test.o \
+./server_tools.o \
 ./table_tools.o \
 ./utils.o 
 
 C_DEPS += \
 ./app.d \
+./fruit_index_test.d \
 ./index_tools.d \
+./journal_test.d \
+./journal_tools.d \
+./server_test.d \
+./server_tools.d \
 ./table_tools.d \
 ./utils.d 
 
@@ -26,7 +41,7 @@ C_DEPS += \
 %.o: ../%.c
 	@echo 'Building file: $<'
 	@echo 'Invoking: Cross GCC Compiler'
-	gcc -O3 -g3 -Wall -c -fmessage-length=0 -fms-extensions -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
+	gcc -I/usr/local/include -O3 -g3 -Wall -c -fmessage-length=0 -fms-extensions -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

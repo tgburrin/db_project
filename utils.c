@@ -120,3 +120,64 @@ int move_and_replace_file(char *src_path, char *dst_path, char *filename) {
 	free(src_file);
 	return rv;
 }
+
+bool is_utc_timestamp(char *timestr, regex_t *precomp) {
+	regex_t *expr, iexp;
+	bool rv = false;
+	int errcd = 0;
+
+	if ( precomp == NULL ) {
+		if ( (errcd = regcomp(&iexp, UTC_TIMESTAMP, REG_EXTENDED|REG_NOSUB)) != 0 ) {
+			char errmsg[1024];
+			regerror(errcd, &iexp, errmsg, sizeof(errmsg));
+			fprintf(stderr, "Failed to compile expression: %s\n", errmsg);
+			return rv;
+		} else
+			expr = &iexp;
+	} else {
+		expr = precomp;
+	}
+
+	if ( regexec(expr, timestr, 0, 0, 0) == 0 )
+		rv = true;
+
+	if ( precomp == NULL )
+		regfree(&iexp);
+
+	 return rv;
+}
+
+bool parse_timestamp(char *timestr, struct timespec *tm) {
+	bool rv = false;
+	struct tm pt;
+
+	bzero(&pt, sizeof(struct tm));
+
+	printf("Parsing %s\n", timestr);
+	if ( is_utc_timestamp(timestr, NULL) )
+		printf("Found timestamp\n");
+	else
+		printf("Not a valid timestamp\n");
+
+	/*
+	char *ext = NULL;
+	if ( (ext = strptime(timestr, "%F %T", &pt)) != NULL )
+		fprintf(stderr, "Ext: %s\n", ext);
+	*/
+	strptime(timestr, "%F", &pt);
+
+	char tsout[32];
+	format_timestamp(tm, tsout);
+	printf("Out: %s\n", tsout);
+
+	return rv;
+}
+
+void format_timestamp(struct timespec *t, char out[31]) {
+    const int tmpsize = 21;
+    struct tm tm;
+
+    gmtime_r(&t->tv_sec, &tm);
+    strftime(out, tmpsize, "%Y-%m-%dT%H:%M:%S.", &tm);
+    sprintf(out + tmpsize -1, "%09luZ", t->tv_nsec);
+}

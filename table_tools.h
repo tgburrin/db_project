@@ -32,6 +32,7 @@ typedef struct TableBase {
 	char table_name[DB_OBJECT_NAME_SZ];
 	uint16_t header_size;
 	uint16_t record_size;
+	struct timespec closedtm;
 	uint64_t total_record_count;
 	uint64_t free_record_slot;
 
