@@ -17,12 +17,12 @@
 
 #include "utils.h"
 
+//#define IDX_ORDER 64
+//#define IDX_ORDER 21
+#define IDX_ORDER 13
+//#define IDX_ORDER 9
 //#define IDX_ORDER 5
-#define IDX_ORDER 3
-
-typedef struct IndexKey {
-	void *record;
-} indexkey_t;
+//#define IDX_ORDER 3
 
 typedef struct IndexNode {
 	bool is_leaf;
@@ -35,21 +35,28 @@ typedef struct IndexNode {
 	void *children[IDX_ORDER];
 } idxnode_t;
 
+typedef struct IndexKey {
+	idxnode_t *childnode;
+	uint64_t record;
+} indexkey_t;
+
 typedef int (*compare_key_f)(void *, void *);
-typedef void * (*copy_key_f)(void *, void *);
+typedef void * (*copy_key_f)(void *, void *); // in key, out key
 typedef void * (*create_key_f)(void);
-typedef void (*set_key_value_f)(void *, void *);
-typedef void * (*get_key_value_f)(void *);
+typedef void * (*create_record_key_f)(void *);
+typedef void (*set_key_value_f)(void *, uint64_t);
+typedef uint64_t (*get_key_value_f)(void *);
 typedef void (*print_key_f)(void *, char *);
 
 typedef struct Index {
-	char index_name[64];
+	char index_name[DB_OBJECT_NAME_SZ];
 	uint16_t record_size;
 
 	bool is_unique;
 	idxnode_t root_node;
 	compare_key_f compare_key;
 	create_key_f create_key;
+	create_record_key_f create_record_key;
 	copy_key_f copy_key;
 	set_key_value_f set_key_value;
 	get_key_value_f get_key_value;
@@ -60,6 +67,7 @@ void init_index_node(idxnode_t *idxnode);
 int num_child_records(index_t *idx, idxnode_t *idxnode);
 idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, void *find_rec);
 void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec);
+int find_node_index(index_t *idx, idxnode_t *idxnode, void *find_rec, int *index);
 
 idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key);
 idxnode_t *add_node_value (index_t *idx, idxnode_t *idxnode, void *key);
@@ -69,11 +77,14 @@ void update_max_value (index_t *idx, idxnode_t *parent_idx, idxnode_t *idxnode, 
 
 void collapse_nodes(index_t *idx, idxnode_t *idxnode);
 bool remove_index_value (index_t *idx, idxnode_t *idxnode, void *key);
+bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key);
 void release_tree(index_t *idx, idxnode_t *idxnode);
 
 void read_index_from_file(index_t *idx);
 void write_file_from_index(index_t *idx);
 
 void print_tree(index_t *idx, idxnode_t *idxnode, int *counter);
+void print_tree_totals(index_t *idx, idxnode_t *idxnode, int *counter);
+void print_index_scan_lookup(index_t *idx, void *key);
 
 #endif /* INDEX_TOOLS_H_ */
