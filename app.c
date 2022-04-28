@@ -59,6 +59,8 @@ typedef struct Subscription {
 	char churn_type[16];
 } subscription_t;
 
+bool admin_command (cJSON *obj, char *err, size_t errsz);
+
 void print_subscription_key(void *vk, char *dst);
 void print_customer_key(void *vk, char *dst);
 
@@ -76,6 +78,33 @@ void set_custid_key_value(void *k, uint64_t v);
 
 uint64_t get_subid_key_value(void *k);
 uint64_t get_custid_key_value(void *k);
+
+struct Server *app_server = NULL;
+
+bool admin_command (cJSON *obj, char *err, size_t errsz) {
+	bool rv = false;
+	char *operation = NULL;
+	char *action = NULL;
+
+	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
+	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
+		return rv;
+
+	k = cJSON_GetObjectItemCaseSensitive(obj, "data");
+	if (!cJSON_IsObject(k))
+		return rv;
+
+	k = cJSON_GetObjectItemCaseSensitive(k, "action");
+	if (!cJSON_IsString(k) || ((action = k->valuestring) == NULL))
+		return rv;
+
+	printf("Action: %s\nOperation: %s\n", action, operation);
+	if ( strcmp(operation, "c") == 0 && strcmp(action, "shutdown") == 0 ) {
+		app_server->running = false;
+	}
+
+	return rv;
+}
 
 void print_subscription_key(void *vk, char *dst) {
 	sprintf(dst, "%s (%" PRIu64 ")", ((idxsubidkey_t *)vk)->subscription_id, ((idxsubidkey_t *)vk)->record);
@@ -628,6 +657,24 @@ int main (int argc, char **argv) {
 
 	if ( argc == 2 )
 		load_subs_from_file(argv[1], st, index_list, 2, &jnl);
+
+	app_server = malloc(sizeof(struct Server));
+	bzero(&app_server, sizeof(struct Server));
+
+	message_handler_list_t handlers;
+	bzero(&handlers, sizeof(message_handler_list_t));
+
+	message_handler_t admin_handler;
+	bzero(&admin_handler, sizeof(message_handler_t));
+
+	strcpy(admin_handler.handler_name, "admin_functions");
+	admin_handler.handler = &admin_command;
+
+	handlers.num_handlers++;
+	handlers.handlers = malloc(sizeof(void *) * handlers.num_handlers);
+	handlers.handlers[0] = &admin_handler;
+
+	start_application(app_server, &handlers);
 
 	int counter;
 	printf("Subscription Index:\n");

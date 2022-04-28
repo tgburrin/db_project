@@ -23,14 +23,31 @@
 
 #define MAX_CONNECTIONS 5 // 32768 would be the max with ephemeral ports
 
+typedef bool (*message_handler_f)(cJSON *, char *, size_t); // in key, out key
+
+struct Server {
+	bool running;
+};
+
 typedef struct Message {
 	uint16_t msg_sz;
 	uint16_t bytes_remaining;
 	char *msgbuf;
 } message_t;
 
-bool format_error_reponse(char *msg, char *msgout, size_t msgoutsz);
+typedef struct MessageHandler {
+	char handler_name[DB_OBJECT_NAME_SZ];
+	message_handler_f handler;
+} message_handler_t;
+
+typedef struct MessageHandlerList {
+	uint16_t num_handlers;
+	message_handler_t **handlers;
+} message_handler_list_t;
+
+bool format_error_reponse(char *, char *, size_t);
 int init_server_socket (void);
-bool start_application (void);
+bool start_application (struct Server *, message_handler_list_t *);
+uint16_t process_message (message_handler_list_t *, char *, char **);
 
 #endif /* SERVER_TOOLS_H_ */
