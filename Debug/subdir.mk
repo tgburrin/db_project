@@ -9,7 +9,6 @@ C_SRCS += \
 ../index_tools.c \
 ../journal_test.c \
 ../journal_tools.c \
-../server_test.c \
 ../server_tools.c \
 ../table_tools.c \
 ../utils.c 
@@ -20,7 +19,6 @@ OBJS += \
 ./index_tools.o \
 ./journal_test.o \
 ./journal_tools.o \
-./server_test.o \
 ./server_tools.o \
 ./table_tools.o \
 ./utils.o 
@@ -31,7 +29,6 @@ C_DEPS += \
 ./index_tools.d \
 ./journal_test.d \
 ./journal_tools.d \
-./server_test.d \
 ./server_tools.d \
 ./table_tools.d \
 ./utils.d 
