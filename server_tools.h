@@ -21,8 +21,33 @@
 #define DEFAULT_SERVER_PORT 4933
 #define DEFAULT_SERVER_NAME "shm-table"
 
-#define MAX_CONNECTIONS 2048
+#define MAX_CONNECTIONS 5 // 32768 would be the max with ephemeral ports
 
-bool start_application (void);
+typedef bool (*message_handler_f)(cJSON *, char *, size_t); // in key, out key
+
+struct Server {
+	bool running;
+};
+
+typedef struct Message {
+	uint16_t msg_sz;
+	uint16_t bytes_remaining;
+	char *msgbuf;
+} message_t;
+
+typedef struct MessageHandler {
+	char handler_name[DB_OBJECT_NAME_SZ];
+	message_handler_f handler;
+} message_handler_t;
+
+typedef struct MessageHandlerList {
+	uint16_t num_handlers;
+	message_handler_t **handlers;
+} message_handler_list_t;
+
+bool format_error_reponse(char *, char *, size_t);
+int init_server_socket (void);
+bool start_application (struct Server *, message_handler_list_t *);
+uint16_t process_message (message_handler_list_t *, char *, char **);
 
 #endif /* SERVER_TOOLS_H_ */
