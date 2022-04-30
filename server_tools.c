@@ -92,15 +92,26 @@ int init_server_socket (void) {
 	return svr_sd;
 }
 
-bool start_application (struct Server *app_server, message_handler_list_t *h) {
+bool start_application (message_handler_list_t *h) {
 	bool rv = false;
 	uint16_t ac = 0;
 	int svr_sd = -1, cli_sd = -1, i;
 	char stx = 2;
 	char errmsg[1024];
 
+	struct Server *app_server = NULL;
+
 	struct pollfd conns[MAX_CONNECTIONS];
 	message_t buffers[MAX_CONNECTIONS];
+
+	for(i = 0; i < h->num_handlers && app_server == NULL; i++) {
+		message_handler_t *hdl = (h->handlers)[i];
+		if (strcmp(hdl->handler_name, "admin_functions") == 0 && hdl->handler_argc >= 1)
+			app_server = (struct Server *)((hdl->handler_argv)[0]);
+	}
+
+	if ( app_server == NULL )
+		return rv;
 
 	if ( (svr_sd = init_server_socket()) < 0 )
 		return rv;
@@ -318,13 +329,17 @@ uint16_t process_message (message_handler_list_t *h, char *payload, char **error
 			cJSON *handler = cJSON_GetObjectItemCaseSensitive(op, "handler");
 			if ( cJSON_IsString(handler) && (handler->valuestring != NULL) ) {
 				printf("Searching for handler %s\n", handler->valuestring);
-				for(int i = 0; i < h->num_handlers; i++) {
+				int i = 0;
+				for(i = 0; i < h->num_handlers; i++) {
 					if ( strcmp(handler->valuestring, (h->handlers[i])->handler_name) == 0 ) {
 						printf("Found handler for %s\n", handler->valuestring);
 						message_handler_t *run = h->handlers[i];
-						(*run->handler)(op, NULL, 0);
+						(*run->handler)(op, run->handler_argc, run->handler_argv, NULL, 0);
+						break;
 					}
 				}
+				if ( i == h->num_handlers )
+					fprintf(stderr, "handler not found for message type %s\n", handler->valuestring);
 			}
 		}
 		cJSON_Delete(doc);

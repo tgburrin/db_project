@@ -59,7 +59,7 @@ typedef struct Subscription {
 	char churn_type[16];
 } subscription_t;
 
-bool admin_command (cJSON *obj, char *err, size_t errsz);
+bool admin_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t errsz);
 
 void print_subscription_key(void *vk, char *dst);
 void print_customer_key(void *vk, char *dst);
@@ -79,12 +79,17 @@ void set_custid_key_value(void *k, uint64_t v);
 uint64_t get_subid_key_value(void *k);
 uint64_t get_custid_key_value(void *k);
 
-struct Server *app_server = NULL;
-
-bool admin_command (cJSON *obj, char *err, size_t errsz) {
+bool admin_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
 	char *operation = NULL;
 	char *action = NULL;
+
+	struct Server *app_server = NULL;
+	if ( argc >= 1 )
+		app_server = (struct Server *)argv[0];
+
+	if ( app_server == NULL )
+		return rv;
 
 	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
 	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
@@ -103,6 +108,27 @@ bool admin_command (cJSON *obj, char *err, size_t errsz) {
 		app_server->running = false;
 	}
 
+	return rv;
+}
+
+bool subscription_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t errsz) {
+	bool rv = false;
+	char *operation = NULL;
+	char *action = NULL;
+
+	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
+	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
+		return rv;
+
+	k = cJSON_GetObjectItemCaseSensitive(obj, "data");
+	if (!cJSON_IsObject(k))
+		return rv;
+
+	k = cJSON_GetObjectItemCaseSensitive(k, "action");
+	if (!cJSON_IsString(k) || ((action = k->valuestring) == NULL))
+		return rv;
+
+	printf("Action: %s\nOperation: %s\n", action, operation);
 	return rv;
 }
 
@@ -418,7 +444,7 @@ bool subscription_txn_handler(
 	}
 
 	switch (action) {
-		case 'i':
+		case 'i': ;
 			void *k = NULL;
 			jr.objtype = action;
 			bool txn_valid = false;
@@ -454,10 +480,10 @@ bool subscription_txn_handler(
 				}
 			}
 			break;
-		case 'd':
+		case 'd': ;
 			jr.objtype = action;
 			break;
-		case 'u':
+		case 'u': ;
 			jr.objtype = action;
 			break;
 		default:
@@ -582,6 +608,8 @@ int main (int argc, char **argv) {
 	//char *timestr = "2022-04-14";
 	//struct timespec out_time;
 	struct timespec start_tm, end_tm, now;
+	struct Server app_server;
+
 	/*
 	parse_timestamp(timestr, &out_time);
 
@@ -658,23 +686,43 @@ int main (int argc, char **argv) {
 	if ( argc == 2 )
 		load_subs_from_file(argv[1], st, index_list, 2, &jnl);
 
-	app_server = malloc(sizeof(struct Server));
 	bzero(&app_server, sizeof(struct Server));
 
 	message_handler_list_t handlers;
 	bzero(&handlers, sizeof(message_handler_list_t));
 
+	// Admin handler
 	message_handler_t admin_handler;
 	bzero(&admin_handler, sizeof(message_handler_t));
 
 	strcpy(admin_handler.handler_name, "admin_functions");
 	admin_handler.handler = &admin_command;
+	admin_handler.handler_argc = 1;
+	admin_handler.handler_argv = malloc(sizeof(void *) * admin_handler.handler_argc);
+	admin_handler.handler_argv[0] = &app_server;
 
 	handlers.num_handlers++;
 	handlers.handlers = malloc(sizeof(void *) * handlers.num_handlers);
-	handlers.handlers[0] = &admin_handler;
+	handlers.handlers[handlers.num_handlers - 1] = &admin_handler;
 
-	start_application(app_server, &handlers);
+	// Subscription handler
+	message_handler_t subscription_handler;
+	bzero(&subscription_handler, sizeof(message_handler_t));
+
+	strcpy(subscription_handler.handler_name, "subscriptions");
+	subscription_handler.handler = &subscription_command;
+	subscription_handler.handler_argc = 4;
+	subscription_handler.handler_argv = malloc(sizeof(void *) * subscription_handler.handler_argc);
+	subscription_handler.handler_argv[0] = &jnl;
+	subscription_handler.handler_argv[1] = st;
+	subscription_handler.handler_argv[2] = &subid_idx;
+	subscription_handler.handler_argv[3] = &custid_idx;
+
+	handlers.num_handlers++;
+	handlers.handlers = realloc(handlers.handlers, sizeof(void *) * handlers.num_handlers);
+	handlers.handlers[handlers.num_handlers - 1] = &subscription_handler;
+
+	start_application(&handlers);
 
 	int counter;
 	printf("Subscription Index:\n");
