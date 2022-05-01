@@ -19,8 +19,8 @@
 #include "index_tools.h"
 #include "journal_tools.h"
 
-#define NUM_SUBSCRIPTIONS 15000000
-//#define NUM_SUBSCRIPTIONS 1000
+//#define NUM_SUBSCRIPTIONS 15000000
+#define NUM_SUBSCRIPTIONS 1000
 //#define NUM_SUBSCRIPTIONS 30
 
 #define SUBSCRIPTION_ID_LENTH 18
@@ -59,7 +59,8 @@ typedef struct Subscription {
 	char churn_type[16];
 } subscription_t;
 
-bool admin_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t errsz);
+bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
+bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 
 void print_subscription_key(void *vk, char *dst);
 void print_customer_key(void *vk, char *dst);
@@ -79,9 +80,8 @@ void set_custid_key_value(void *k, uint64_t v);
 uint64_t get_subid_key_value(void *k);
 uint64_t get_custid_key_value(void *k);
 
-bool admin_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t errsz) {
+bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
-	char *operation = NULL;
 	char *action = NULL;
 
 	struct Server *app_server = NULL;
@@ -91,11 +91,7 @@ bool admin_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t er
 	if ( app_server == NULL )
 		return rv;
 
-	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
-	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
-		return rv;
-
-	k = cJSON_GetObjectItemCaseSensitive(obj, "data");
+	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "data");
 	if (!cJSON_IsObject(k))
 		return rv;
 
@@ -103,18 +99,21 @@ bool admin_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t er
 	if (!cJSON_IsString(k) || ((action = k->valuestring) == NULL))
 		return rv;
 
-	printf("Action: %s\nOperation: %s\n", action, operation);
-	if ( strcmp(operation, "c") == 0 && strcmp(action, "shutdown") == 0 ) {
+	printf("Action: %s\n", action);
+	if ( strcmp(action, "shutdown") == 0 ) {
 		app_server->running = false;
 	}
+
+	cJSON *r = cJSON_CreateObject();
+	cJSON_AddStringToObject(r, "message", "server shutting down");
+	*resp = r;
 
 	return rv;
 }
 
-bool subscription_command (cJSON *obj, uint16_t argc, void **argv, char *err, size_t errsz) {
+bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
 	char *operation = NULL;
-	char *action = NULL;
 
 	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
 	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
@@ -124,11 +123,14 @@ bool subscription_command (cJSON *obj, uint16_t argc, void **argv, char *err, si
 	if (!cJSON_IsObject(k))
 		return rv;
 
-	k = cJSON_GetObjectItemCaseSensitive(k, "action");
-	if (!cJSON_IsString(k) || ((action = k->valuestring) == NULL))
-		return rv;
+	printf("Operation: %s\n", operation);
+	if ( strcmp(operation, "i") == 0 ) {
+	}
 
-	printf("Action: %s\nOperation: %s\n", action, operation);
+	cJSON *r = cJSON_CreateObject();
+	cJSON_AddStringToObject(r, "message", "hello world");
+	*resp = r;
+
 	return rv;
 }
 

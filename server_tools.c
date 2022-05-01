@@ -7,11 +7,35 @@
 
 #include "server_tools.h"
 
-bool format_error_reponse(char *msg, char *msgout, size_t msgoutsz) {
+bool create_api_message(cJSON **msg) {
 	bool rv = false;
 	cJSON *obj = cJSON_CreateObject();
 
-	if ( cJSON_AddStringToObject(obj, "error", msg) == NULL ) {
+	cJSON_AddStringToObject(obj, "handler", "");
+	cJSON_AddStringToObject(obj, "operation", "r"); // default to response op
+	cJSON_AddArrayToObject(obj, "operation_flags");
+	cJSON_AddObjectToObject(obj, "data");
+
+	*msg = obj;
+	rv = true;
+
+	return rv;
+}
+
+bool format_error_reponse(char *msg, char *msgout, size_t msgoutsz) {
+	bool rv = false;
+
+	cJSON *obj = NULL;
+	create_api_message(&obj);
+
+	cJSON *op_flags = cJSON_GetObjectItem(obj, "operation_flags");
+	cJSON *data = cJSON_GetObjectItem(obj, "data");
+
+	cJSON *errstatus = cJSON_CreateString("error");
+	cJSON_AddItemToArray(op_flags, errstatus);
+
+
+	if ( cJSON_AddStringToObject(data, "message", msg) == NULL ) {
 		cJSON_Delete(obj);
 		return rv;
 	}
@@ -22,9 +46,9 @@ bool format_error_reponse(char *msg, char *msgout, size_t msgoutsz) {
 		strcpy(msgout, jsonmsg);
 		rv = true;
 		free(jsonmsg);
-		cJSON_Delete(obj);
 	}
 
+	cJSON_Delete(obj);
 	return rv;
 }
 
@@ -97,7 +121,6 @@ bool start_application (message_handler_list_t *h) {
 	uint16_t ac = 0;
 	int svr_sd = -1, cli_sd = -1, i;
 	char stx = 2;
-	char errmsg[1024];
 
 	struct Server *app_server = NULL;
 
@@ -156,12 +179,21 @@ bool start_application (message_handler_list_t *h) {
 						continue;
 					}
 					if ( ac + 1 >= MAX_CONNECTIONS ) {
-						bzero(errmsg, sizeof(errmsg));
-						errmsg[0] = stx;
-						format_error_reponse("Too many connections", errmsg + 2, sizeof(errmsg) - 3);
-						size_t msglen = strlen(errmsg+2);
-						errmsg[1] = htons(msglen);
-						send(cli_sd, errmsg, msglen, 0);
+						uint16_t msgsz = 4096;
+						void *errmsg = malloc(msgsz);
+						bzero(errmsg, msgsz);
+						((char *)errmsg)[0] = stx;
+						format_error_reponse("Too many connections", errmsg + sizeof(char) + sizeof(uint16_t), msgsz - 3);
+						size_t msglen = strlen(errmsg+3);
+						/*
+						printf("Sending %ld bytes: %s\n", strlen(errmsg + sizeof(char) + sizeof(uint16_t)),
+														(char *)(errmsg + sizeof(char) + sizeof(uint16_t)));
+						*/
+						uint16_t nmsglen = htons(msglen);
+						memcpy(errmsg + 1, &nmsglen, sizeof(uint16_t));
+						send(cli_sd, errmsg, msglen + sizeof(char) + sizeof(uint16_t), 0);
+
+						free(errmsg);
 						close(cli_sd);
 					} else {
 						// if this puts us above our max connections, we need to reject with a response
@@ -268,7 +300,26 @@ bool start_application (message_handler_list_t *h) {
 
 				if ( buffers[cnt].msg_sz > 0 && buffers[cnt].bytes_remaining == 0 ) {
 					//printf("processing message '%s' (%d bytes)\n", buffers[cnt].msgbuf, buffers[cnt].msg_sz);
-					process_message(h, buffers[cnt].msgbuf, NULL);
+					void *response = NULL, *errors = NULL;
+
+					process_message(h, buffers[cnt].msgbuf, (char **)&response, NULL);
+
+					if ( response != NULL ) {
+						printf("Sending response %s\n", (char *)response);
+						uint16_t msglen = strlen(response);
+						response = realloc(response, msglen + 4); // header bytes and terminal \0
+						bzero(response + msglen + 1, 3);
+						memmove(response + sizeof(char) + sizeof(uint16_t), response, msglen + 1);
+						((char *)response)[0] = stx;
+						uint16_t nmsglen = htons(msglen + 1);
+						memcpy(response + 1, &nmsglen, sizeof(uint16_t));
+						send(conns[cnt].fd, response, msglen + (sizeof(char)*2) + sizeof(uint16_t), 0);
+						free(response);
+					}
+
+					if ( errors != NULL )
+						free(errors);
+
 					free(buffers[cnt].msgbuf);
 					bzero(&buffers[cnt], sizeof(message_t));
 				}
@@ -301,7 +352,7 @@ bool start_application (message_handler_list_t *h) {
 	return true;
 }
 
-uint16_t process_message (message_handler_list_t *h, char *payload, char **errors) {
+uint16_t process_message (message_handler_list_t *h, char *payload, char **response, char **errors) {
 	uint16_t rv = 0;
 	cJSON *doc = NULL;
 	if ( (doc = cJSON_Parse(payload)) == NULL ) {
@@ -319,28 +370,36 @@ uint16_t process_message (message_handler_list_t *h, char *payload, char **error
 		free(str);
 
 	if ( doc != NULL ) {
-		if ( !cJSON_IsArray(doc) ) {
+		if ( !cJSON_IsObject(doc) ) {
 			rv++;
 			cJSON_Delete(doc);
 			return rv;
 		}
-		const cJSON *op;
-		cJSON_ArrayForEach(op, doc) {
-			cJSON *handler = cJSON_GetObjectItemCaseSensitive(op, "handler");
-			if ( cJSON_IsString(handler) && (handler->valuestring != NULL) ) {
-				printf("Searching for handler %s\n", handler->valuestring);
-				int i = 0;
-				for(i = 0; i < h->num_handlers; i++) {
-					if ( strcmp(handler->valuestring, (h->handlers[i])->handler_name) == 0 ) {
-						printf("Found handler for %s\n", handler->valuestring);
-						message_handler_t *run = h->handlers[i];
-						(*run->handler)(op, run->handler_argc, run->handler_argv, NULL, 0);
-						break;
+		cJSON *resp = NULL;
+		cJSON *respmsg = NULL;
+		cJSON *handler = cJSON_GetObjectItemCaseSensitive(doc, "handler");
+		if ( cJSON_IsString(handler) && (handler->valuestring != NULL) ) {
+			printf("Searching for handler %s\n", handler->valuestring);
+			int i = 0;
+			for(i = 0; i < h->num_handlers; i++) {
+				if ( strcmp(handler->valuestring, (h->handlers[i])->handler_name) == 0 ) {
+					create_api_message(&respmsg);
+					printf("Found handler for %s\n", handler->valuestring);
+					message_handler_t *run = h->handlers[i];
+					(*run->handler)(doc, &resp, run->handler_argc, run->handler_argv, NULL, 0);
+					if ( resp != NULL ) {
+						cJSON *op_flags = cJSON_GetObjectItem(respmsg, "operation_flags");
+						cJSON *status = cJSON_CreateString("success");
+						cJSON_AddItemToArray(op_flags, status);
+						cJSON_ReplaceItemInObjectCaseSensitive(respmsg, "data", resp);
 					}
+					*response = cJSON_PrintUnformatted(respmsg);
+					cJSON_Delete(respmsg);
+					break;
 				}
-				if ( i == h->num_handlers )
-					fprintf(stderr, "handler not found for message type %s\n", handler->valuestring);
 			}
+			if ( i == h->num_handlers )
+				fprintf(stderr, "handler not found for message type %s\n", handler->valuestring);
 		}
 		cJSON_Delete(doc);
 	}
