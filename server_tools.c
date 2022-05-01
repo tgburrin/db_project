@@ -205,7 +205,7 @@ bool start_application (message_handler_list_t *h) {
 				} while ( cli_sd != -1 );
 			} else {
 				bool close_conn = false;
-				uint16_t buffsz = 2048;
+				uint16_t buffsz = 4096;
 				int recv_flag = MSG_PEEK;
 				void *buffer;
 
@@ -214,35 +214,42 @@ bool start_application (message_handler_list_t *h) {
 					 buffers[cnt].bytes_remaining < buffsz ) {
 					buffsz = buffers[cnt].bytes_remaining;
 					recv_flag = 0;
+					printf("Existing buffer found with %d bytes remaining\n", buffsz);
 				}
 
 				buffer = malloc(buffsz);
 				bzero(buffer, buffsz);
 
-				if ( (rb = recv(conns[cnt].fd, buffer, buffsz, recv_flag)) < 0 ) {
+				rb = recv(conns[cnt].fd, buffer, buffsz, recv_flag);
+				printf("Read %d bytes PEEKd from the network\n", rb);
+				if ( rb < 0 ) {
 					fprintf(stderr, "Error reading from socket %d: %s\n", conns[cnt].fd, strerror(errno));
 					close_conn = true;
 				} else if ( rb == 0 ) {
+					printf("closing connection with no bytes\n");
 					close_conn = true;
 				} else {
 					int stx_cnt = 0;
 					for(i = 0; i < rb; i++) {
 						if ( ((char *)buffer)[i] == stx ) {
+							// network short may contain 0x02 as part of the number
 							stx_cnt++;
 							if ( stx_cnt >= 2) {
 								// There are 2 messages in the buffer, walk it back to 1
 								i--;
 								break;
-							} else if ( stx_cnt == 1 && i + 3 >= rb) {
+							} else if ( stx_cnt == 1 && i + sizeof(uint16_t) >= rb) {
 								// There is 1 message at the end of the buffer and the size would
 								// be split into 2 iterations
 								i--;
 								break;
-							}
+							} else
+								i += sizeof(uint16_t); // a network short may contain an STX byte
 						}
 					}
 
 					bzero(buffer, buffsz);
+					printf("Attempting to consume %d bytes out of %d from buffer\n", i, rb);
 					rb = recv(conns[cnt].fd, buffer, i, 0);
 					printf("Read %d bytes from the network\n", rb);
 
@@ -325,6 +332,7 @@ bool start_application (message_handler_list_t *h) {
 				}
 
 				if ( close_conn ) {
+					printf("Closing connection %d\n", cnt);
 					close(conns[cnt].fd);
 					ac--;
 					//printf("Slot %d closed %d connections left active\n", cnt, ac);

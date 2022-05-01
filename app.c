@@ -62,6 +62,8 @@ typedef struct Subscription {
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 
+bool subscription_txn_handler(journal_t *, table_t *, index_t **, uint8_t, char, subscription_t *, char *);
+
 void print_subscription_key(void *vk, char *dst);
 void print_customer_key(void *vk, char *dst);
 
@@ -114,17 +116,52 @@ bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
 	char *operation = NULL;
+	journal_t *j = (journal_t *)(argv[0]);
+	table_t *tbl = (table_t *)(argv[1]);
+	uint8_t index_cnt = *((uint8_t *)(argv[2]));
+	index_t **index_list = (index_t **)(argv[3]);
 
 	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
 	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
 		return rv;
+	else
+		operation = k->valuestring;
 
-	k = cJSON_GetObjectItemCaseSensitive(obj, "data");
-	if (!cJSON_IsObject(k))
+	cJSON *data = cJSON_GetObjectItemCaseSensitive(obj, "data");
+	if (!cJSON_IsObject(data))
 		return rv;
 
 	printf("Operation: %s\n", operation);
 	if ( strcmp(operation, "i") == 0 ) {
+		printf("Running insert on %s\n", tbl->table_name);
+		for(int i = 0; i < index_cnt; i++)
+			printf("\tIndex -> %s\n", (index_list[i])->index_name);
+		subscription_t s;
+		bzero(&s, sizeof(subscription_t));
+
+		k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
+		if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+			strcpy(s.subscription_id, k->valuestring);
+
+		k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
+		if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+			strcpy(s.customer_id, k->valuestring);
+
+		k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
+		if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+			strcpy(s.product_type, k->valuestring);
+/*
+bool subscription_txn_handler(
+		journal_t *j,
+		table_t *tbl,
+		index_t **idxs,
+		uint8_t idxcnt,
+		char action,
+		subscription_t *subrec,
+		char *keyname
+)
+ */
+		subscription_txn_handler(j, tbl, index_list, index_cnt, 'i', &s, NULL);
 	}
 
 	cJSON *r = cJSON_CreateObject();
@@ -636,6 +673,7 @@ int main (int argc, char **argv) {
 	index_t *index_list[2];
 	index_list[0] = &subid_idx;
 	index_list[1] = &custid_idx;
+	uint8_t index_cnt = 2;
 
 	bzero(&subs_table, sizeof(table_t));
 	subs_table.header_size = sizeof(table_t);
@@ -717,8 +755,8 @@ int main (int argc, char **argv) {
 	subscription_handler.handler_argv = malloc(sizeof(void *) * subscription_handler.handler_argc);
 	subscription_handler.handler_argv[0] = &jnl;
 	subscription_handler.handler_argv[1] = st;
-	subscription_handler.handler_argv[2] = &subid_idx;
-	subscription_handler.handler_argv[3] = &custid_idx;
+	subscription_handler.handler_argv[2] = &index_cnt;
+	subscription_handler.handler_argv[3] = index_list;
 
 	handlers.num_handlers++;
 	handlers.handlers = realloc(handlers.handlers, sizeof(void *) * handlers.num_handlers);
