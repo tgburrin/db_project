@@ -7,6 +7,44 @@
 
 #include "utils.h"
 
+regex_t datetime_expr, date_expr, time_expr;
+
+bool init_common(void) {
+	int errcd = 0;
+	char errmsg[1024];
+	setenv("TZ", "UTC", 1);
+
+	bzero(&datetime_expr, sizeof(regex_t));
+	if ( (errcd = regcomp(&datetime_expr, ISO8601_UTC_DATETIME_EXPR, REG_EXTENDED)) != 0 ) {
+		regerror(errcd, &datetime_expr, errmsg, sizeof(errmsg));
+		fprintf(stderr, "Failed to compile expression '%s': %s\n", ISO8601_UTC_DATETIME_EXPR, errmsg);
+		return false;
+	}
+
+	bzero(&date_expr, sizeof(regex_t));
+	if ( (errcd = regcomp(&date_expr, ISO8601_DATE_EXPR, REG_EXTENDED)) != 0 ) {
+		regerror(errcd, &date_expr, errmsg, sizeof(errmsg));
+		fprintf(stderr, "Failed to compile expression '%s': %s\n", ISO8601_DATE_EXPR, errmsg);
+		return false;
+	}
+
+	bzero(&time_expr, sizeof(regex_t));
+	if ( (errcd = regcomp(&time_expr, ISO8601_TIME_EXPR, REG_EXTENDED)) != 0 ) {
+		regerror(errcd, &time_expr, errmsg, sizeof(errmsg));
+		fprintf(stderr, "Failed to compile expression '%s': %s\n", ISO8601_TIME_EXPR, errmsg);
+		return false;
+	}
+
+	return true;
+}
+
+bool cleanup_common(void) {
+	regfree(&datetime_expr);
+	regfree(&date_expr);
+	regfree(&time_expr);
+	return true;
+}
+
 size_t initialize_file(char *filepath, size_t sz, int *rfd) {
 	size_t rv = 0;
 	int i, fd = -1;
@@ -121,55 +159,143 @@ int move_and_replace_file(char *src_path, char *dst_path, char *filename) {
 	return rv;
 }
 
-bool is_utc_timestamp(char *timestr, regex_t *precomp) {
-	regex_t *expr, iexp;
+bool is_utc_timestamp(char *timestr) {
 	bool rv = false;
-	int errcd = 0;
 
-	if ( precomp == NULL ) {
-		if ( (errcd = regcomp(&iexp, UTC_TIMESTAMP, REG_EXTENDED|REG_NOSUB)) != 0 ) {
-			char errmsg[1024];
-			regerror(errcd, &iexp, errmsg, sizeof(errmsg));
-			fprintf(stderr, "Failed to compile expression: %s\n", errmsg);
-			return rv;
-		} else
-			expr = &iexp;
-	} else {
-		expr = precomp;
-	}
-
-	if ( regexec(expr, timestr, 0, 0, 0) == 0 )
+	if ( regexec(&datetime_expr, timestr, 0, 0, 0) == 0 )
 		rv = true;
-
-	if ( precomp == NULL )
-		regfree(&iexp);
 
 	 return rv;
 }
 
+bool parse_time(char *timestr, struct timespec *tm) {
+	bool rv = false;
+
+	time_t t1 = 0, t2 = 0;
+	struct tm pt;
+	localtime_r(&t1, &pt);
+	struct tm day;
+	localtime_r(&t2, &day);
+
+	regmatch_t m[5];
+	bzero(m, sizeof(m));
+
+	uint16_t regmsz = sizeof(m)/sizeof(regmatch_t);
+
+	if ( regexec(&time_expr, timestr, regmsz, m, 0) == 0 ) {
+		size_t msglen = strlen(timestr)+1;
+		char *msg = malloc(msglen);
+		int i = 0;
+		for ( i=1; i < regmsz && m[i].rm_so >= 0; i++ ) {
+			bzero(msg, msglen);
+			strncpy(msg, timestr + m[i].rm_so, m[i].rm_eo - m[i].rm_so);
+			//printf("Time Match %d is %d -> %d -> %s\n", i, m[i].rm_so, m[i].rm_eo, msg);
+			switch (i) {
+				case 1:
+					pt.tm_hour = atoi(msg);
+					//printf("Adding %d hours\n", pt.tm_hour);
+					break;
+				case 2:
+					pt.tm_min = atoi(msg);
+					//printf("Adding %d minutes\n", pt.tm_min);
+					break;
+				case 3:
+					pt.tm_sec = atoi(msg);
+					//printf("Adding %d seconds\n", pt.tm_sec);
+					break;
+				case 4:
+					uint8_t len = 9 - strlen(msg);
+					uint64_t mult = 1; //power of 10
+					for(int k = 0; k < len; k++)
+						mult *= 10;
+					long nsec = atol(msg) * mult;
+					tm->tv_nsec = nsec;
+					break;
+			}
+		}
+		if ( i >= 3 ) {
+			//printf("Adding %ld seconds based on time %s\n", mktime(&pt) - mktime(&day), timestr);
+			tm->tv_sec += mktime(&pt) - mktime(&day);
+			rv = true;
+		}
+		free(msg);
+	}
+	return rv;
+}
+
+bool parse_date(char *datestr, struct timespec *tm) {
+	bool rv = false;
+
+	struct tm pt;
+	bzero(&pt, sizeof(pt));
+
+	regmatch_t m[4];
+	bzero(m, sizeof(m));
+	uint16_t regmsz = sizeof(m)/sizeof(regmatch_t);
+
+	if ( regexec(&date_expr, datestr, regmsz, m, 0) == 0 ) {
+		size_t msglen = strlen(datestr)+1;
+		char *msg = malloc(msglen);
+		int i = 0;
+		for ( i=1; i < regmsz && m[i].rm_so >= 0; i++ ) {
+			int timepart = 0;
+			bzero(msg, msglen);
+			strncpy(msg, datestr + m[i].rm_so, m[i].rm_eo - m[i].rm_so);
+			//printf("Date Match %d is %d -> %d -> %s\n", i, m[i].rm_so, m[i].rm_eo, msg);
+			switch (i) {
+				case 1:
+					timepart = atoi(msg);
+					pt.tm_year = timepart - 1900;
+					break;
+				case 2:
+					timepart = atoi(msg);
+					pt.tm_mon = timepart - 1;
+					break;
+				case 3:
+					timepart = atoi(msg);
+					pt.tm_mday = timepart;
+					break;
+			}
+		}
+		free(msg);
+		if ( i >= 3 ) {
+			//printf("Adding %ld seconds based on date %s\n", mktime(&pt), datestr);
+			tm->tv_sec += mktime(&pt);
+			rv = true;
+		}
+	}
+
+	return rv;
+}
+
 bool parse_timestamp(char *timestr, struct timespec *tm) {
 	bool rv = false;
-	struct tm pt;
 
-	bzero(&pt, sizeof(struct tm));
+	bzero(tm, sizeof(struct timespec));
 
-	printf("Parsing %s\n", timestr);
-	if ( is_utc_timestamp(timestr, NULL) )
-		printf("Found timestamp\n");
-	else
-		printf("Not a valid timestamp\n");
+	regmatch_t m[6];
+	bzero(m, sizeof(m));
 
-	/*
-	char *ext = NULL;
-	if ( (ext = strptime(timestr, "%F %T", &pt)) != NULL )
-		fprintf(stderr, "Ext: %s\n", ext);
-	*/
-	strptime(timestr, "%F", &pt);
+	uint16_t regmsz = sizeof(m)/sizeof(regmatch_t);
 
-	char tsout[32];
-	format_timestamp(tm, tsout);
-	printf("Out: %s\n", tsout);
-
+	if ( regexec(&datetime_expr, timestr, regmsz, m, 0) == 0 ) {
+		size_t msglen = strlen(timestr)+1;
+		char *msg = malloc(msglen);
+		for ( int i=1; i < regmsz && m[i].rm_so >= 0; i++ ) {
+			bzero(msg, msglen);
+			strncpy(msg, timestr + m[i].rm_so, m[i].rm_eo - m[i].rm_so);
+			//printf("Match %d is %d -> %d -> %s\n", i, m[i].rm_so, m[i].rm_eo, msg);
+			switch (i) {
+				case 1:
+					parse_date(msg, tm);
+					break;
+				case 2:
+					parse_time(msg, tm);
+					break;
+			}
+		}
+		free(msg);
+	}
 	return rv;
 }
 

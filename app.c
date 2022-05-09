@@ -19,9 +19,9 @@
 #include "index_tools.h"
 #include "journal_tools.h"
 
-//#define NUM_SUBSCRIPTIONS 15000000
+
+#define NUM_SUBSCRIPTIONS 15000000
 #define NUM_SUBSCRIPTIONS 1000
-//#define NUM_SUBSCRIPTIONS 30
 
 #define SUBSCRIPTION_ID_LENTH 18
 #define CUSTOMER_ID_LENTH 18
@@ -595,12 +595,19 @@ void load_subs_from_file(
 					addsub.quantity = atoi(field);
 					break;
 				case 11: // term_start
+					if ( strlen(field) > 0 )
+						parse_timestamp(field, &addsub.term_start);
+					break;
 				case 12: // term_end
+					if ( strlen(field) > 0 )
+						parse_timestamp(field, &addsub.term_end);
 					break;
 				case 13: // autorenew - this can have nulls
 					addsub.autorenew = strcmp(field, "t") == 0 ? true : false;
 					break;
 				case 14: // canceled at
+					if ( strlen(field) > 0 )
+						parse_timestamp(field, &addsub.canceled_at);
 					break;
 				case 15: // status
 					if ( strcmp(field, "\\N") != 0 )
@@ -641,22 +648,14 @@ void load_subs_from_file(
 }
 
 int main (int argc, char **argv) {
+	char timestr[31];
+	int counter;
+
 	// https://stackoverflow.com/questions/6187908/is-it-possible-to-dynamically-define-a-struct-in-c
+	init_common();
 
-	//char *timestr = "2022-04-14 05:59:57.263+00";
-	//char *timestr = "2022-04-14";
-	//struct timespec out_time;
-	struct timespec start_tm, end_tm, now;
+	struct timespec start_tm, end_tm;
 	struct Server app_server;
-
-	/*
-	parse_timestamp(timestr, &out_time);
-
-	clock_gettime(CLOCK_REALTIME, &now);
-	char out_time_str[31];
-	format_timestamp(&now, out_time_str);
-	printf("Out time: %s\n", out_time_str);
-	*/
 
 	subscription_t s;
 
@@ -764,7 +763,6 @@ int main (int argc, char **argv) {
 
 	start_application(&handlers);
 
-	int counter;
 	printf("Subscription Index:\n");
 	counter = 0;
 	print_tree_totals(&subid_idx, &subid_idx.root_node, &counter);
@@ -806,6 +804,10 @@ int main (int argc, char **argv) {
 		printf("currency: %s\n", s.currency);
 		printf("plan_price: %d\n", s.plan_price);
 		printf("quantity: %d\n", s.quantity);
+		format_timestamp(&s.term_start, timestr);
+		printf("term start: %s\n", timestr);
+		format_timestamp(&s.term_end, timestr);
+		printf("term end: %s\n", timestr);
 		printf("status: %s\n", s.status);
 		printf("external_reference: %s\n", s.external_reference);
 		printf("lifecycle: %s\n", s.subscription_lifecycle);
@@ -827,6 +829,10 @@ int main (int argc, char **argv) {
 		printf("currency: %s\n", s.currency);
 		printf("plan_price: %d\n", s.plan_price);
 		printf("quantity: %d\n", s.quantity);
+		format_timestamp(&s.term_start, timestr);
+		printf("term start: %s\n", timestr);
+		format_timestamp(&s.term_end, timestr);
+		printf("term end: %s\n", timestr);
 		printf("status: %s\n", s.status);
 		printf("external_reference: %s\n", s.external_reference);
 		printf("lifecycle: %s\n", s.subscription_lifecycle);
@@ -848,6 +854,10 @@ int main (int argc, char **argv) {
 		printf("currency: %s\n", s.currency);
 		printf("plan_price: %d\n", s.plan_price);
 		printf("quantity: %d\n", s.quantity);
+		format_timestamp(&s.term_start, timestr);
+		printf("term start: %s\n", timestr);
+		format_timestamp(&s.term_end, timestr);
+		printf("term end: %s\n", timestr);
 		printf("status: %s\n", s.status);
 	}
 
@@ -863,6 +873,14 @@ int main (int argc, char **argv) {
 		release_tree(index_list[counter], &(index_list[counter])->root_node);
 
 	close_journal(&jnl);
+
+	cleanup_common();
+
+	for(counter = 0; counter < handlers.num_handlers; counter++) {
+		message_handler_t *h = handlers.handlers[counter];
+		free(h->handler_argv);
+	}
+	free(handlers.handlers);
 
 	printf("Done\n");
 	exit(EXIT_SUCCESS);
