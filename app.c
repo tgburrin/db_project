@@ -19,8 +19,9 @@
 #include "index_tools.h"
 #include "journal_tools.h"
 
+
 #define NUM_SUBSCRIPTIONS 15000000
-//#define NUM_SUBSCRIPTIONS 1000
+#define NUM_SUBSCRIPTIONS 1000
 
 #define SUBSCRIPTION_ID_LENTH 18
 #define CUSTOMER_ID_LENTH 18
