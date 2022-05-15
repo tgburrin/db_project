@@ -19,10 +19,10 @@
 
 //#define IDX_ORDER 64
 //#define IDX_ORDER 21
-#define IDX_ORDER 13
+//#define IDX_ORDER 13
 //#define IDX_ORDER 9
 //#define IDX_ORDER 5
-//#define IDX_ORDER 3
+#define IDX_ORDER 3
 
 typedef struct IndexNode {
 	bool is_leaf;
@@ -43,6 +43,7 @@ typedef struct IndexKey {
 typedef int (*compare_key_f)(void *, void *);
 typedef void * (*copy_key_f)(void *, void *); // in key, out key
 typedef void * (*create_key_f)(void);
+typedef void (*release_key_f)(void *);
 typedef void * (*create_record_key_f)(void *);
 typedef void (*set_key_value_f)(void *, uint64_t);
 typedef uint64_t (*get_key_value_f)(void *);
@@ -56,6 +57,7 @@ typedef struct Index {
 	idxnode_t root_node;
 	compare_key_f compare_key;
 	create_key_f create_key;
+	release_key_f release_key;
 	create_record_key_f create_record_key;
 	copy_key_f copy_key;
 	set_key_value_f set_key_value;
