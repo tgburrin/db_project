@@ -14,10 +14,7 @@
 
 #include <time.h>
 
-#include "server_tools.h"
-#include "table_tools.h"
-#include "index_tools.h"
-#include "journal_tools.h"
+#include "db_interface.h"
 
 #define NUM_SUBSCRIPTIONS 15000000
 //#define NUM_SUBSCRIPTIONS 1000
@@ -744,37 +741,15 @@ int main (int argc, char **argv) {
 	custid_idx.get_key_value = &get_custid_key_value;
 	custid_idx.print_key = &print_subscription_key;
 
+	open_table(&subs_table, &st);
+	printf("Table opened\n");
 
-	//read_index_from_file(&subid_idx);
-	//read_index_from_file(&custid_idx);
+	read_index_from_record_numbers(st, &subid_idx);
+	read_index_from_record_numbers(st, &custid_idx);
+
 	printf("Indexes loaded\n");
 
-	open_table(&subs_table, &st);
-
-	subscription_t *ls = NULL;
-	idxsubidkey_t *lsk = NULL;
-	idxcustidkey_t *lck = NULL;
-	for(counter = 0; counter < NUM_SUBSCRIPTIONS; counter++) {
-		if ( st->used_slots[counter] != UINT64_MAX ) {
-			ls = read_subscription_record(st, counter);
-
-			lsk = create_subid_key_from_record(ls);
-			lck = create_custid_key_from_record(ls);
-
-			add_index_value(&subid_idx, &subid_idx.root_node, lsk);
-			add_index_value(&custid_idx, &custid_idx.root_node, lck);
-
-			free(lsk);
-			free(lck);
-
-			lsk = NULL;
-			lck = NULL;
-		}
-	}
-
 	new_journal(&jnl);
-
-	printf("Table opened\n");
 
 	//del_subscription(st, &subid_idx, &custid_idx, &s);
 
@@ -839,14 +814,12 @@ int main (int argc, char **argv) {
 
 	idxsubidkey_t k;
 	bzero(&k, sizeof(idxsubidkey_t));
-	//strcpy(k.subscription_id, "su_0jahiubOMk0cnB");
 	k.subscription_id = "sub_PcHdKYt3rmiBNl";
 	k.record = UINT64_MAX;
 
 	print_index_scan_lookup(&subid_idx, &k);
 
 	clock_gettime(CLOCK_REALTIME, &start_tm);
-	//if ( find_subscription_by_id(st, &subid_idx, "su_0jahiubOMk0cnB", &s) ) {
 	if ( find_subscription_by_id(st, &subid_idx, "su_1PNT9d6ahvCu8Z", &s) ) {
 		clock_gettime(CLOCK_REALTIME, &end_tm);
 		time_diff = end_tm.tv_sec - start_tm.tv_sec;
@@ -920,11 +893,9 @@ int main (int argc, char **argv) {
 	printf("Closing table\n");
 	close_table(st);
 
-	/*
 	printf("Flushing indexes\n");
 	for(counter = 0; counter < 2; counter++)
-		write_file_from_index(index_list[counter]);
-	*/
+		write_record_numbers_from_index(index_list[counter]);
 
 	printf("Releasing indexes\n");
 	for(counter = 0; counter < 2; counter++)
