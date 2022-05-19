@@ -20,9 +20,12 @@
 #include "table_tools.h"
 #include "index_tools.h"
 
+#define FRUITNAME_SZ 32;
+
 void print_fruit_key(void *vk, char *dst);
 int compare_fruit_name (void *va, void *vb);
 void * create_fruit_key(void);
+void release_fruit_key(void *);
 void * copy_fruit_key(void *inkey, void *outkey);
 void set_fruit_key_value(void *k, uint64_t v);
 uint64_t get_fruit_key_value(void *k);
@@ -30,7 +33,7 @@ uint64_t get_fruit_key_value(void *k);
 typedef struct IndexFruitKey {
 	// requires -fms-extensions option for gcc
 	struct IndexKey;
-	char fruitname[32];
+	char *fruitname;
 } idxfruitkey_t;
 
 void print_fruit_key(void *vk, char *dst) {
@@ -65,6 +68,10 @@ void * create_fruit_key(void) {
 	return (void *)newkey;
 }
 
+void release_fruit_key(void *rec) {
+	free(((idxfruitkey_t *)rec)->fruitname);
+}
+
 void * copy_fruit_key(void *inkey, void *outkey) {
 	memcpy(outkey, inkey, sizeof(idxfruitkey_t));
 	((idxfruitkey_t *)outkey)->childnode = NULL;
@@ -91,6 +98,7 @@ int index_test (int argc, char **argv) {
 	init_index_node(&fruit_idx.root_node);
 	fruit_idx.compare_key = &compare_fruit_name;
 	fruit_idx.create_key = &create_fruit_key;
+	fruit_idx.release_key = &release_fruit_key;
 	fruit_idx.copy_key = &copy_fruit_key;
 	fruit_idx.set_key_value = &set_fruit_key_value;
 	fruit_idx.get_key_value = &get_fruit_key_value;
@@ -100,32 +108,32 @@ int index_test (int argc, char **argv) {
 	for(int i=0; i<32; i++)
 		bzero(&k[i], sizeof(idxfruitkey_t));
 
-	strcpy(k[0].fruitname, "grapes");
+	k[0].fruitname = "grapes";
 	k[0].record = 0;
-	strcpy(k[1].fruitname, "cantaloupe");
+	k[1].fruitname = "cantaloupe";
 	k[1].record = 1;
-	strcpy(k[2].fruitname, "banana");
+	k[2].fruitname = "banana";
 	k[2].record = 2;
 	k[2].childnode = NULL;
-	strcpy(k[3].fruitname, "orange");
+	k[3].fruitname = "orange";
 	k[3].record = 3;
-	strcpy(k[4].fruitname, "strawberry");
+	k[4].fruitname = "strawberry";
 	k[4].record = 4;
-	strcpy(k[5].fruitname, "strawberry");
+	k[5].fruitname = "strawberry";
 	k[5].record = 5;
-	strcpy(k[6].fruitname, "mango");
+	k[6].fruitname = "mango";
 	k[6].record = 6;
-	strcpy(k[7].fruitname, "apple");
+	k[7].fruitname = "apple";
 	k[7].record = 7;
-	strcpy(k[8].fruitname, "watermelon");
+	k[8].fruitname = "watermelon";
 	k[8].record = 8;
-	strcpy(k[9].fruitname, "strawberry");
+	k[9].fruitname = "strawberry";
 	k[9].record = 9;
-	strcpy(k[10].fruitname, "strawberry");
+	k[10].fruitname = "strawberry";
 	k[10].record = 10;
-	strcpy(k[11].fruitname, "strawberry");
+	k[11].fruitname = "strawberry";
 	k[11].record = 11;
-	strcpy(k[12].fruitname, "strawberry");
+	k[12].fruitname = "strawberry";
 	k[12].record = 12;
 
 	int counter;
@@ -157,7 +165,7 @@ int index_test (int argc, char **argv) {
 
 	idxfruitkey_t fk, *f;
 	bzero(&fk, sizeof(idxfruitkey_t));
-	strcpy(fk.fruitname, "strawberry");
+	fk.fruitname = "strawberry";
 	//fk.record = UINT64_MAX;
 	fk.record = 5;
 
