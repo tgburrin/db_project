@@ -560,7 +560,7 @@ void read_index_from_file(index_t *idx) {
 		for(counter = 0; counter < recordcount; counter++) {
 			bzero(buff, sizeof(char)*recordsize);
 			if ( read(fd, buff, recordsize) != recordsize ) {
-				//
+				// an index needs to be remapped in some way
 			} else {
 				add_index_value(idx, &idx->root_node, buff);
 			}

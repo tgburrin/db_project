@@ -14,10 +14,7 @@
 
 #include <time.h>
 
-#include "server_tools.h"
-#include "table_tools.h"
-#include "index_tools.h"
-#include "journal_tools.h"
+#include "db_interface.h"
 
 
 #define NUM_SUBSCRIPTIONS 15000000
@@ -29,13 +26,13 @@
 typedef struct IndexSubIdKey {
 	// requires -fms-extensions option for gcc
 	struct IndexKey;
-	char subscription_id[SUBSCRIPTION_ID_LENTH + 1];
+	char *subscription_id;
 } idxsubidkey_t;
 
 typedef struct IndexCustIdKey {
 	// requires -fms-extensions option for gcc
 	struct IndexKey;
-	char customer_id[CUSTOMER_ID_LENTH + 1];
+	char *customer_id;
 } idxcustidkey_t;
 
 typedef struct Subscription {
@@ -72,6 +69,9 @@ int compare_customer_id (void *a, void *b);
 
 void * create_subid_key(void);
 void * create_custid_key(void);
+
+void release_subid_key(void *);
+void release_custid_key(void *);
 
 void * copy_subid_key(void *inkey, void *outkey);
 void * copy_custid_key(void *inkey, void *outkey);
@@ -115,7 +115,8 @@ bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *
 
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
-	char *operation = NULL;
+	char *operation = NULL, *lookup_index = NULL;
+	char op;
 	journal_t *j = (journal_t *)(argv[0]);
 	table_t *tbl = (table_t *)(argv[1]);
 	uint8_t index_cnt = *((uint8_t *)(argv[2]));
@@ -127,29 +128,52 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 	else
 		operation = k->valuestring;
 
+	if ( strlen(operation) == 1 )
+		op = operation[0];
+
+	k = cJSON_GetObjectItemCaseSensitive(obj, "lookup_index");
+	if (!cJSON_IsString(k) || ((lookup_index = k->valuestring) == NULL))
+		return rv;
+	else
+		lookup_index = k->valuestring;
+
 	cJSON *data = cJSON_GetObjectItemCaseSensitive(obj, "data");
 	if (!cJSON_IsObject(data))
 		return rv;
 
-	printf("Operation: %s\n", operation);
-	if ( strcmp(operation, "i") == 0 ) {
-		printf("Running insert on %s\n", tbl->table_name);
-		for(int i = 0; i < index_cnt; i++)
-			printf("\tIndex -> %s\n", (index_list[i])->index_name);
-		subscription_t s;
-		bzero(&s, sizeof(subscription_t));
+	printf("Operation: %s (%c)\n", operation, op);
+	printf("Lookup Index: %s\n", lookup_index);
 
-		k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
-		if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-			strcpy(s.subscription_id, k->valuestring);
+	switch (op) {
+		case 'i':
+			printf("Running insert on %s\n", tbl->table_name);
+			for(int i = 0; i < index_cnt; i++)
+				printf("\tIndex -> %s\n", (index_list[i])->index_name);
+			subscription_t s;
+			bzero(&s, sizeof(subscription_t));
 
-		k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
-		if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-			strcpy(s.customer_id, k->valuestring);
+			k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
+			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+				strcpy(s.subscription_id, k->valuestring);
 
-		k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
-		if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-			strcpy(s.product_type, k->valuestring);
+			k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
+			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+				strcpy(s.customer_id, k->valuestring);
+
+			k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
+			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+				strcpy(s.product_type, k->valuestring);
+			subscription_txn_handler(j, tbl, index_list, index_cnt, 'i', &s, NULL);
+			break;
+		case 'u':
+			break;
+		case 'd':
+			break;
+		case 'q':
+			break;
+		default:
+			// error message
+	}
 /*
 bool subscription_txn_handler(
 		journal_t *j,
@@ -161,8 +185,6 @@ bool subscription_txn_handler(
 		char *keyname
 )
  */
-		subscription_txn_handler(j, tbl, index_list, index_cnt, 'i', &s, NULL);
-	}
 
 	cJSON *r = cJSON_CreateObject();
 	cJSON_AddStringToObject(r, "message", "hello world");
@@ -185,7 +207,7 @@ int compare_subscription_id (void *va, void *vb) {
 	int rv = 0;
 
 	// if the order ids aren't equal return immediately
-	if ( (rv = strncmp(a->subscription_id, b->subscription_id, SUBSCRIPTION_ID_LENTH)) != 0 )
+	if ( (rv = strcmp(a->subscription_id, b->subscription_id)) != 0 )
 		return rv;
 
 	// if either record id is a max value pointer ignore the comparison further
@@ -207,7 +229,7 @@ int compare_customer_id (void *va, void *vb) {
 	int rv = 0;
 
 	// if the order ids aren't equal return immediately
-	if ( (rv = strncmp(a->customer_id, b->customer_id, CUSTOMER_ID_LENTH)) != 0 )
+	if ( (rv = strcmp(a->customer_id, b->customer_id)) != 0 )
 		return rv;
 
 	// if either record id is a max value pointer ignore the comparison further
@@ -234,12 +256,19 @@ void * create_custid_key(void) {
 	return (void *)newkey;
 }
 
+void release_subid_key(void *rec) {
+	free(((idxsubidkey_t *)rec)->subscription_id);
+}
+
+void release_custid_key(void *rec) {
+	free(((idxcustidkey_t *)rec)->customer_id);
+}
+
 void *create_subid_key_from_record(void *rec) {
 	subscription_t *s = (subscription_t *)rec;
 	idxsubidkey_t *newkey = malloc(sizeof(idxsubidkey_t));
 	bzero(newkey, sizeof(idxsubidkey_t));
-	strcpy(newkey->subscription_id, s->subscription_id);
-
+	newkey->subscription_id = s->subscription_id;
 	return (void *)newkey;
 }
 
@@ -247,7 +276,7 @@ void *create_custid_key_from_record(void *rec) {
 	subscription_t *s = (subscription_t *)rec;
 	idxcustidkey_t *newkey = malloc(sizeof(idxcustidkey_t));
 	bzero(newkey, sizeof(idxcustidkey_t));
-	strcpy(newkey->customer_id, s->customer_id);
+	newkey->customer_id = s->customer_id;
 	return (void *)newkey;
 }
 
@@ -338,7 +367,7 @@ uint64_t add_subscription(
 	uint64_t rec_num = UINT64_MAX;
 	idxsubidkey_t subkey;
 	bzero(&subkey, sizeof(idxsubidkey_t));
-	strcpy(subkey.subscription_id, subrec->subscription_id);
+	subkey.subscription_id = subrec->subscription_id;
 	subkey.record = UINT64_MAX;
 
 	//printf("Finding node where %s is or belongs\n", subkey.subscription_id);
@@ -358,7 +387,7 @@ uint64_t add_subscription(
 
 	idxcustidkey_t custkey;
 	bzero(&custkey, sizeof(idxcustidkey_t));
-	strcpy(custkey.customer_id, subrec->customer_id);
+	custkey.customer_id = subrec->customer_id;
 	custkey.record = rec_num;
 
 	(*cusidx->print_key)(&custkey, keyrec);
@@ -377,7 +406,7 @@ uint64_t del_subscription(
 
 	idxsubidkey_t subkey, *sk;
 	bzero(&subkey, sizeof(idxsubidkey_t));
-	strcpy(subkey.subscription_id, subrec->subscription_id);
+	subkey.subscription_id = subrec->subscription_id;
 	subkey.record = UINT64_MAX;
 
 	if ( (sk = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, &subkey)) == NULL )
@@ -392,7 +421,7 @@ uint64_t del_subscription(
 
 	idxcustidkey_t custkey;
 	bzero(&custkey, sizeof(idxcustidkey_t));
-	strcpy(custkey.customer_id, dr.customer_id);
+	custkey.customer_id = dr.customer_id;
 	custkey.record = rec_num;
 
 	remove_index_value(subidx, &subidx->root_node, sk);
@@ -405,7 +434,7 @@ bool find_subscription_by_id(table_t *tbl, index_t *subidx, char *subscription_i
 	idxsubidkey_t k, *kp;
 	bool rv = false;
 	bzero(&k, sizeof(k));
-	strcpy(k.subscription_id, subscription_id);
+	k.subscription_id = subscription_id;
 	k.record = UINT64_MAX;
 
 	if ((kp = find_record(subidx, &subidx->root_node, &k)) != NULL) {
@@ -425,7 +454,7 @@ uint64_t find_subscription_slot(table_t *tbl, index_t *subidx, subscription_t *s
 
 	idxsubidkey_t k, *kp;
 	bzero(&k, sizeof(k));
-	strcpy(k.subscription_id, subrec->subscription_id);
+	k.subscription_id = subrec->subscription_id;
 	k.record = UINT64_MAX;
 
 	if ((kp = find_record(subidx, &subidx->root_node, &k)) != NULL)
@@ -482,11 +511,12 @@ bool subscription_txn_handler(
 		strcpy(jr.objkey, uq_idx->index_name);
 	}
 
+	void *k = NULL;
+	bool txn_valid = false;
+
 	switch (action) {
 		case 'i': ;
-			void *k = NULL;
 			jr.objtype = action;
-			bool txn_valid = false;
 
 			if ( uq_idx != NULL ) {
 				if ( (k = find_record(uq_idx, &uq_idx->root_node, key)) != NULL ) {
@@ -500,9 +530,10 @@ bool subscription_txn_handler(
 			if ( txn_valid ) {
 				uint64_t recnum = UINT64_MAX;
 				if ( (recnum = add_subscription_record(tbl, subrec)) < UINT64_MAX ) {
+					subscription_t *newrec = read_subscription_record(tbl, recnum);
 
 					for(int i=0; i < idxcnt; i++) {
-						k = (*idxs[i]->create_record_key)((void *)subrec);
+						k = (*idxs[i]->create_record_key)((void *)newrec);
 						(*idxs[i]->set_key_value)(k, recnum);
 						add_index_value(idxs[i], &idxs[i]->root_node, k);
 						free(k);
@@ -519,11 +550,13 @@ bool subscription_txn_handler(
 				}
 			}
 			break;
-		case 'd': ;
+		case 'd':
 			jr.objtype = action;
 			break;
-		case 'u': ;
+		case 'u':
 			jr.objtype = action;
+			break;
+		case 'q':
 			break;
 		default:
 			fprintf(stderr, "Unknown txn action %c\n", action);
@@ -709,16 +742,15 @@ int main (int argc, char **argv) {
 	custid_idx.get_key_value = &get_custid_key_value;
 	custid_idx.print_key = &print_subscription_key;
 
+	open_table(&subs_table, &st);
+	printf("Table opened\n");
 
-	read_index_from_file(&subid_idx);
-	read_index_from_file(&custid_idx);
+	read_index_from_record_numbers(st, &subid_idx);
+	read_index_from_record_numbers(st, &custid_idx);
+
 	printf("Indexes loaded\n");
 
-	open_table(&subs_table, &st);
-
 	new_journal(&jnl);
-
-	printf("Table opened\n");
 
 	//del_subscription(st, &subid_idx, &custid_idx, &s);
 
@@ -776,21 +808,19 @@ int main (int argc, char **argv) {
 
 	idxcustidkey_t c;
 	bzero(&c, sizeof(idxcustidkey_t));
-	strcpy(c.customer_id, "cus_DLr1bFxFbQzbdS");
+	c.customer_id = "cus_DLr1bFxFbQzbdS";
 	c.record = UINT64_MAX;
 
 	bzero(&s, sizeof(subscription_t));
 
 	idxsubidkey_t k;
 	bzero(&k, sizeof(idxsubidkey_t));
-	//strcpy(k.subscription_id, "su_0jahiubOMk0cnB");
-	strcpy(k.subscription_id, "sub_PcHdKYt3rmiBNl");
+	k.subscription_id = "sub_PcHdKYt3rmiBNl";
 	k.record = UINT64_MAX;
 
 	print_index_scan_lookup(&subid_idx, &k);
 
 	clock_gettime(CLOCK_REALTIME, &start_tm);
-	//if ( find_subscription_by_id(st, &subid_idx, "su_0jahiubOMk0cnB", &s) ) {
 	if ( find_subscription_by_id(st, &subid_idx, "su_1PNT9d6ahvCu8Z", &s) ) {
 		clock_gettime(CLOCK_REALTIME, &end_tm);
 		time_diff = end_tm.tv_sec - start_tm.tv_sec;
@@ -866,7 +896,7 @@ int main (int argc, char **argv) {
 
 	printf("Flushing indexes\n");
 	for(counter = 0; counter < 2; counter++)
-		write_file_from_index(index_list[counter]);
+		write_record_numbers_from_index(index_list[counter]);
 
 	printf("Releasing indexes\n");
 	for(counter = 0; counter < 2; counter++)
