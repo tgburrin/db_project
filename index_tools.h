@@ -21,8 +21,8 @@
 //#define IDX_ORDER 21
 //#define IDX_ORDER 13
 //#define IDX_ORDER 9
-//#define IDX_ORDER 5
-#define IDX_ORDER 3
+#define IDX_ORDER 5
+//#define IDX_ORDER 3
 
 typedef struct IndexNode {
 	bool is_leaf;

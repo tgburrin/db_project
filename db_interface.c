@@ -9,6 +9,7 @@
 
 void read_index_from_record_numbers(table_t *tbl, index_t *idx) {
 	char *ipth;
+	//char msg[256];
 	if ( (ipth = getenv("TABLE_DATA")) == NULL )
 		ipth = DEFAULT_BASE;
 
@@ -51,6 +52,11 @@ void read_index_from_record_numbers(table_t *tbl, index_t *idx) {
 				void *idx_key = (*idx->create_record_key)(rec);
 				(*idx->set_key_value)(idx_key, recordnum);
 				add_index_value(idx, &idx->root_node, idx_key);
+				/*
+				bzero(msg, sizeof(msg));
+				(*idx->print_key)(idx_key, msg);
+				printf("Adding %s\n", msg);
+				*/
 				free(idx_key);
 			}
 		}

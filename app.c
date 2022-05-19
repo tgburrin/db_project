@@ -17,7 +17,7 @@
 #include "db_interface.h"
 
 
-#define NUM_SUBSCRIPTIONS 15000000
+//#define NUM_SUBSCRIPTIONS 15000000
 #define NUM_SUBSCRIPTIONS 1000
 
 #define SUBSCRIPTION_ID_LENTH 18

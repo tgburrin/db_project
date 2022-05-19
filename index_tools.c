@@ -284,7 +284,6 @@ idxnode_t *add_node_value (index_t *idx,idxnode_t *idxnode, void *key) {
 	} else {
 		indexkey_t *new_key = (*idx->create_key)();
 		(*idx->copy_key)(key, new_key);
-		new_key->childnode = 0;
 		idxnode->children[i] = new_key;
 	}
 
