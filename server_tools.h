@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #include <cjson/cJSON.h>
 

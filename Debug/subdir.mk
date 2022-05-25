@@ -5,6 +5,7 @@
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
 ../app.c \
+../data_dictionary.c \
 ../db_interface.c \
 ../fruit_index_test.c \
 ../index_tools.c \
@@ -16,6 +17,7 @@ C_SRCS += \
 
 OBJS += \
 ./app.o \
+./data_dictionary.o \
 ./db_interface.o \
 ./fruit_index_test.o \
 ./index_tools.o \
@@ -27,6 +29,7 @@ OBJS += \
 
 C_DEPS += \
 ./app.d \
+./data_dictionary.d \
 ./db_interface.d \
 ./fruit_index_test.d \
 ./index_tools.d \
