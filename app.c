@@ -17,8 +17,8 @@
 #include "db_interface.h"
 
 
-//#define NUM_SUBSCRIPTIONS 15000000
-#define NUM_SUBSCRIPTIONS 1000
+#define NUM_SUBSCRIPTIONS 15000000
+//#define NUM_SUBSCRIPTIONS 1000
 
 #define SUBSCRIPTION_ID_LENTH 18
 #define CUSTOMER_ID_LENTH 18
@@ -567,7 +567,7 @@ bool subscription_txn_handler(
 	return rv;
 }
 
-void load_subs_from_file(
+void g(
 			char *filename,
 			table_t *tbl,
 			index_t **idxs,

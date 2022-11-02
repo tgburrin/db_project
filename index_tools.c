@@ -10,15 +10,15 @@ void init_index_node(idxnode_t *idxnode) {
 }
 
 int num_child_records(index_t *idx, idxnode_t *idxnode) {
-		int rv = -1;
-		if ( !idxnode->is_leaf ) {
-				rv = 0;
-				for (int i=0; i < idxnode->num_children; i++)
-						rv += ((idxnode_t *)((indexkey_t *)(idxnode->children[i]))->childnode)->num_children;
-		} else {
-				rv = idxnode->num_children;
-		}
-		return rv;
+	int rv = -1;
+	if ( !idxnode->is_leaf ) {
+		rv = 0;
+		for (int i=0; i < idxnode->num_children; i++)
+			rv += ((idxnode_t *)((indexkey_t *)(idxnode->children[i]))->childnode)->num_children;
+	} else {
+		rv = idxnode->num_children;
+	}
+	return rv;
 }
 
 int find_node_index(index_t *idx, idxnode_t *idxnode, void *find_rec, int *index) {
@@ -62,41 +62,41 @@ int find_node_index(index_t *idx, idxnode_t *idxnode, void *find_rec, int *index
 }
 
 idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, void *find_rec) {
-		if ( idxnode->is_leaf )
-				return idxnode;
+	if ( idxnode->is_leaf )
+			return idxnode;
 
-		int index = 0, found;
-		idxnode_t *current = idxnode;
-		while ( (found = find_node_index(idx, current, find_rec, &index)) >= 1)
-			if ( (idxnode_t *)current->next == NULL )
-				break;
-			else
-				current = (idxnode_t *)current->next;
+	int index = 0, found;
+	idxnode_t *current = idxnode;
+	while ( (found = find_node_index(idx, current, find_rec, &index)) >= 1)
+		if ( (idxnode_t *)current->next == NULL )
+			break;
+		else
+			current = (idxnode_t *)current->next;
 
-		return find_node(idx, ((indexkey_t *)(current->children[index]))->childnode, find_rec);
+	return find_node(idx, ((indexkey_t *)(current->children[index]))->childnode, find_rec);
 }
 
 void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec) {
-		void *rv = NULL;
+	void *rv = NULL;
 
-		idxnode = find_node(idx, idxnode, find_rec);
-		int index = 0, found = 0;
+	idxnode = find_node(idx, idxnode, find_rec);
+	int index = 0, found = 0;
 
-		// edge case, empty index
-		if ( idxnode->num_children == 0 )
-			return rv;
-
-		idxnode_t *current = idxnode;
-		while ( (found = find_node_index(idx, current, find_rec, &index)) == 1)
-			if ( (idxnode_t *)current->next == NULL )
-				break;
-			else
-				current = (idxnode_t *)current->next;
-
-		if ( found == 0 && (*idx->compare_key)(current->children[index], find_rec) == 0 )
-			rv = current->children[index];
-
+	// edge case, empty index
+	if ( idxnode->num_children == 0 )
 		return rv;
+
+	idxnode_t *current = idxnode;
+	while ( (found = find_node_index(idx, current, find_rec, &index)) == 1)
+		if ( (idxnode_t *)current->next == NULL )
+			break;
+		else
+			current = (idxnode_t *)current->next;
+
+	if ( found == 0 && (*idx->compare_key)(current->children[index], find_rec) == 0 )
+		rv = current->children[index];
+
+	return rv;
 }
 
 idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key) {
@@ -335,45 +335,43 @@ bool add_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 }
 
 void collapse_nodes(index_t *idx, idxnode_t *idxnode) {
-		if ( idxnode->is_leaf )
-				return;
+	if ( idxnode->is_leaf )
+			return;
 
-		int nc = num_child_records(idx, idxnode);
+	int nc = num_child_records(idx, idxnode);
 
-		//should this be < or <=?
-		if ( nc <= IDX_ORDER && nc > 0 ) { //&& idxnode->next == NULL && idxnode->prev == NULL ) {
-				//printf("Collapsing singular node\n");
+	//should this be < or <=?
+	if ( nc <= IDX_ORDER && nc > 0 ) {
 
-				idxnode_t *cn = ((indexkey_t *)(idxnode->children[0]))->childnode;
-				void *children[IDX_ORDER];
-				int index = 0;
+		idxnode_t *cn = ((indexkey_t *)(idxnode->children[0]))->childnode;
+		void *children[IDX_ORDER];
+		int index = 0;
 
-				idxnode->is_leaf = cn->is_leaf;
+		idxnode->is_leaf = cn->is_leaf;
 
-				for(int i=0; i < idxnode->num_children; i++) {
-						cn = ((indexkey_t *)(idxnode->children[i]))->childnode;
-						for (int k=0; k < cn->num_children; k++) {
-								children[index] = cn->children[k];
-								//printf("storing reference to %s\n", ((idxorderkey_t *)children[index])->orderid);
-								if ( !idxnode->is_leaf )
-										((idxnode_t *)((indexkey_t *)children[index])->childnode)->parent = (struct idxnode_t *)idxnode;
-								index++;
-						}
-						free(cn);
-				}
-
-				for(int i=0; i < IDX_ORDER; i++) {
-						if ( i < idxnode->num_children )
-								free(idxnode->children[i]);
-						idxnode->children[i] = 0;
-				}
-				idxnode->num_children = 0;
-
-				for(int i=0; i < index; i++) {
-						(idxnode->num_children)++;
-						idxnode->children[i] = children[i];
-				}
+		for(int i=0; i < idxnode->num_children; i++) {
+			cn = ((indexkey_t *)(idxnode->children[i]))->childnode;
+			for (int k=0; k < cn->num_children; k++) {
+				children[index] = cn->children[k];
+				if ( !idxnode->is_leaf )
+					((idxnode_t *)((indexkey_t *)children[index])->childnode)->parent = (struct idxnode_t *)idxnode;
+				index++;
+			}
+			free(cn);
 		}
+
+		for(int i=0; i < IDX_ORDER; i++) {
+			if ( i < idxnode->num_children )
+				free(idxnode->children[i]);
+			idxnode->children[i] = 0;
+		}
+		idxnode->num_children = 0;
+
+		for(int i=0; i < index; i++) {
+			(idxnode->num_children)++;
+			idxnode->children[i] = children[i];
+		}
+	}
 }
 
 bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
@@ -385,8 +383,6 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 	while ( (*idx->compare_key)(idxnode->children[0], key) <= 0 ) {
 		for ( int i = 0; i < idxnode->num_children; i++ ) {
 			if ( (*idx->compare_key)(idxnode->children[i], key) == 0 ) {
-				//(*idx->print_key)(idxnode->children[i], msg);
-				//printf("Located key %s in index %d\n", msg, i);
 				v = idxnode->children[i];
 
 				for ( int k=i+1; k < idxnode->num_children; k++)
@@ -397,7 +393,6 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 				free(v);
 
 				if ( idxnode->num_children > 0 && idxnode->num_children <= merge_amt ) {
-					//printf("Attempting merge of nodes\n");
 					int free_count = 0;
 
 					if ( idxnode->prev != NULL )
@@ -406,7 +401,6 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 						free_count += IDX_ORDER - ((idxnode_t *)idxnode->next)->num_children;
 
 					if ( free_count > idxnode->num_children ) {
-						//printf("merge is possible\n");
 						int move_left, move_right, free_left, free_right;
 						idxnode_t *c;
 
@@ -433,10 +427,7 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 							}
 						}
 
-						//printf("Moving\n\t%d <- | -> %d\n", move_left, move_right);
-
 						if ( move_right > 0 && idxnode->next != NULL ) {
-							//printf("Moving %d keys right\n", move_right);
 							c = (idxnode_t *)idxnode->next;
 							memmove(c->children + move_right, c->children, sizeof(void *) * c->num_children);
 							for ( int k = 0; k < move_right; k++ ) {
@@ -450,7 +441,6 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 						}
 
 						if ( move_left > 0 && idxnode->prev != NULL ) {
-							//printf("Moving %d keys left\n", move_left);
 							c = (idxnode_t *)idxnode->prev;
 							for ( int k = 0; k < move_left; k++ ) {
 								c->children[c->num_children] = idxnode->children[k];
@@ -475,27 +465,21 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 
 				if ( (void *)idxnode != (void *)idxnode->parent ) {
 					if ( idxnode->num_children == 0 ) {
-						//printf("%s is empty,\n\tfixing prev/next pointers\n", idxnode->is_leaf ? "Leaf" : "Node");
 						if ( idxnode-> prev != NULL )
 							((idxnode_t *)idxnode->prev)->next = idxnode->next;
 
 						if ( idxnode->next != NULL )
 							((idxnode_t *)idxnode->next)->prev = idxnode->prev;
 
-						//printf("\tremoving key from parent\n");
 						for ( int k=0; k < ((idxnode_t *)idxnode->parent)->num_children; k++) {
-							//printf("Checking parent (%p) key in slot %d\n", idxnode->parent, k);
 							if ( ((indexkey_t *)(((idxnode_t *)idxnode->parent)->children[k]))->childnode == idxnode ) {
-								//printf("Located parent record\n");
 								remove_node_value(idx, (idxnode_t *)idxnode->parent, ((idxnode_t *)idxnode->parent)->children[k]);
 								break;
 							}
 						}
-						//printf("\tfreeing %s\n", idxnode->is_leaf ? "leaf" : "node");
 						free(idxnode);
 					} else {
 						if (i == idxnode->num_children ) {
-							//printf("Leaf node max has changed, updating parent\n");
 							update_max_value(idx, (idxnode_t *)idxnode->parent, (idxnode_t *)idxnode, idxnode->children[i-1]);
 						}
 					}
@@ -628,14 +612,14 @@ void write_file_from_index(index_t *idx) {
 }
 
 bool remove_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
-		idxnode_t *leaf_node = find_node(idx, idxnode, key);
+	idxnode_t *leaf_node = find_node(idx, idxnode, key);
 
-		bool success = remove_node_value(idx, leaf_node, key);
+	bool success = remove_node_value(idx, leaf_node, key);
 
-		if ( (void *)idxnode == (void *)idxnode->parent )
-				collapse_nodes(idx, idxnode);
+	if ( (void *)idxnode == (void *)idxnode->parent )
+			collapse_nodes(idx, idxnode);
 
-		return success;
+	return success;
 }
 
 void release_tree(index_t *idx, idxnode_t *idxnode) {
