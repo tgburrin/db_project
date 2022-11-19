@@ -171,7 +171,7 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 			break;
 		case 'q':
 			break;
-		default:
+		default: ;
 			// error message
 	}
 /*
@@ -567,7 +567,7 @@ bool subscription_txn_handler(
 	return rv;
 }
 
-void g(
+void load_subs_from_file(
 			char *filename,
 			table_t *tbl,
 			index_t **idxs,

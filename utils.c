@@ -203,7 +203,7 @@ bool parse_time(char *timestr, struct timespec *tm) {
 					pt.tm_sec = atoi(msg);
 					//printf("Adding %d seconds\n", pt.tm_sec);
 					break;
-				case 4:
+				case 4: ;
 					uint8_t len = 9 - strlen(msg);
 					uint64_t mult = 1; //power of 10
 					for(int k = 0; k < len; k++)
