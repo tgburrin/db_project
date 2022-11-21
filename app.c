@@ -14,8 +14,8 @@
 
 #include <time.h>
 
+#include "data_dictionary_test.h"
 #include "db_interface.h"
-
 
 #define NUM_SUBSCRIPTIONS 15000000
 //#define NUM_SUBSCRIPTIONS 1000
@@ -145,7 +145,7 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 	printf("Lookup Index: %s\n", lookup_index);
 
 	switch (op) {
-		case 'i':
+		case 'i': ;
 			printf("Running insert on %s\n", tbl->table_name);
 			for(int i = 0; i < index_cnt; i++)
 				printf("\tIndex -> %s\n", (index_list[i])->index_name);
@@ -165,11 +165,11 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 				strcpy(s.product_type, k->valuestring);
 			subscription_txn_handler(j, tbl, index_list, index_cnt, 'i', &s, NULL);
 			break;
-		case 'u':
+		case 'u': ;
 			break;
-		case 'd':
+		case 'd': ;
 			break;
-		case 'q':
+		case 'q': ;
 			break;
 		default: ;
 			// error message
@@ -680,7 +680,7 @@ void load_subs_from_file(
 	journal_sync_on(j);
 }
 
-int main (int argc, char **argv) {
+int main_app (int argc, char **argv) {
 	char timestr[31];
 	int counter;
 
@@ -914,4 +914,8 @@ int main (int argc, char **argv) {
 
 	printf("Done\n");
 	exit(EXIT_SUCCESS);
+}
+
+int main (int argc, char **argv) {
+	exit(data_dictionary_test(argc, argv));
 }
