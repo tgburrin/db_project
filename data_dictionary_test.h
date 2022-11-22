@@ -15,6 +15,16 @@
 
 #include "data_dictionary.h"
 
+#define SUBSCRIPTION_ID_LENTH 18
+#define CUSTOMER_ID_LENTH 18
+
+typedef struct Records {
+	uuid_t record_id;
+	struct timespec created_dt;
+	char record_msg[129];
+	uint64_t record_counter;
+} record_t;
+
 char *read_json_file(char *filename) {
 	char *rv = NULL;
 	FILE *fdf = NULL;
@@ -70,7 +80,7 @@ char *read_json_file(char *filename) {
 }
 
 int data_dictionary_test (int argc, char **argv) {
-	int errs;
+	int errs = 0;
 	char c;
 	char *dd_filename = NULL;
 
@@ -104,44 +114,145 @@ int data_dictionary_test (int argc, char **argv) {
 
 	cJSON *doc = NULL;
 	if ( (doc = cJSON_Parse(filedata)) == NULL ) {
-		char *err = NULL;
+		const char *err = NULL;
 		if ( (err = cJSON_GetErrorPtr()) != NULL )
 			fprintf(stderr, "Error parsing json: %s\n", err);
 		exit(EXIT_FAILURE);
 	} else
 		free(filedata);
 
-	printf("%s\n", cJSON_PrintUnformatted(doc));
 	cJSON *fields = cJSON_GetObjectItemCaseSensitive(doc, "fields");
-	printf("%s\n", cJSON_PrintUnformatted(fields));
+	data_dictionary_t **data_dictionary = init_data_dictionary();
+
 	cJSON *attr = fields->child;
 	while(attr != NULL) {
-		printf("%s\n", attr->string);
+		char *type = NULL;
+		uint8_t size = 0;
+		cJSON *c = NULL;
+		if ( (c = cJSON_GetObjectItemCaseSensitive(attr, "type")) == NULL || !cJSON_IsString(c)) {
+			fprintf(stderr, "type not provided for field: %s\n", attr->string);
+			attr = attr->next;
+			continue;
+		} else
+			type = cJSON_GetStringValue(c);
+
+		if ( (c = cJSON_GetObjectItemCaseSensitive(attr, "size")) != NULL && cJSON_IsNumber(c) ) {
+			double sv = cJSON_GetNumberValue(c);
+			if ( sv >= UINT8_MAX || sv <= 0) {
+				fprintf(stderr, "size %lf must be between 1 and %d\n", sv, UINT8_MAX - 1);
+				attr = attr->next;
+				continue;
+			} else
+				size = (uint8_t)sv;
+		}
+
+		dd_datafield_t *field = NULL;
+		if ( (field = init_dd_field_str(attr->string, type, size)) == NULL ) {
+			fprintf(stderr, "could not create dd field %s (%s)\n", attr->string, type);
+			attr = attr->next;
+			continue;
+		}
+		if ( !add_dd_field(data_dictionary, field)) {
+			fprintf(stderr, "could add dd field %s to dictionary\n", field->field_name);
+			attr = attr->next;
+			continue;
+		} else {
+			printf("Added field %s to dictionary\n", field->field_name);
+			free(field);
+		}
+
 		attr = attr->next;
 	}
-	exit(EXIT_SUCCESS);
 
+	cJSON *tables = cJSON_GetObjectItemCaseSensitive(doc, "tables");
+	attr = tables->child;
+	while(attr != NULL) {
+		printf("Creating schema and table for %s\n", attr->string);
+		dd_schema_t *schema = init_dd_schema(attr->string);
+		uint64_t table_size = 0;
+		cJSON *c = NULL;
+
+		if ( (c = cJSON_GetObjectItemCaseSensitive(attr, "size")) != NULL && cJSON_IsNumber(c) ) {
+			double sv = cJSON_GetNumberValue(c);
+			if ( sv >= UINT64_MAX || sv < 1) {
+				fprintf(stderr, "size %lf must be between 1 and %ld\n", sv, UINT64_MAX - 1);
+				attr = attr->next;
+				continue;
+			} else
+				table_size = (uint64_t)sv;
+		}
+
+		c = cJSON_GetObjectItemCaseSensitive(attr, "fields");
+		if ( c == NULL || cJSON_GetArraySize(c) == 0 ) {
+			fprintf(stderr, "could not find field list for table %s\n", attr->string);
+			attr = attr->next;
+			continue;
+		} else {
+			for( int i = 0; i < cJSON_GetArraySize(c); i++ ) {
+				cJSON *el = cJSON_GetArrayItem(c, i);
+				char *table_field = NULL;
+				if ( !cJSON_IsString(el) ) {
+					fprintf(stderr, "table %s has invalid field name in index %d\n", attr->string, i);
+					continue;
+				} else
+					table_field = cJSON_GetStringValue(el);
+
+				dd_datafield_t *field = NULL;
+				for(int i = 0; i<(*data_dictionary)->num_fields; i++) {
+					dd_datafield_t *cf = (*data_dictionary)->fields + i;
+					if ( strcmp(cf->field_name, table_field) == 0 ) {
+						field = cf;
+						break;
+					}
+				}
+				if ( field == NULL ) {
+					fprintf(stderr, "field %s is defined on table %s, but does not have its own definition\n", table_field, attr->string);
+					continue;
+				}
+				add_dd_schema_field(schema, field);
+			}
+		}
+		add_dd_schema(data_dictionary, schema);
+		free(schema);
+		schema = NULL;
+		for(int i = 0; i<(*data_dictionary)->num_schemas; i++) {
+			schema = ((*data_dictionary)->schemas + i);
+			if ( strcmp(schema->schema_name, attr->string) == 0 )
+				break;
+		}
+
+		if ( schema != NULL ) {
+			dd_table_t *tbl = init_dd_table(attr->string, schema, table_size);
+			add_dd_table(data_dictionary, tbl);
+			free(tbl);
+		}
+
+		attr = attr->next;
+	}
 	printf("Running data dictionary test\n");
-	dd_schema_t *schema = init_dd_schema("test_schema");
-
-	dd_datafield_t *test_str_field = init_dd_field_str("test_str_field", "STR", (uint8_t)20);
-	add_dd_schema_field(schema, test_str_field);
-	dd_datafield_t *test_int_field = init_dd_field_str("test_int_field", "I8", (uint8_t)20);
-	add_dd_schema_field(schema, test_int_field);
-
-	for ( int i = 0; i < schema->field_count; i++) {
-		dd_datafield_t *f = &schema->fields[i];
-		printf("(%d): %s of type %d size %d\n", i, f->fieldname, f->fieldtype, f->fieldsz);
+	printf("Field list:\n");
+	for(int i = 0; i<(*data_dictionary)->num_fields; i++) {
+		printf("%s\n", ((*data_dictionary)->fields + i)->field_name);
+	}
+	printf("Schemas:\n");
+	for(int i = 0; i<(*data_dictionary)->num_schemas; i++) {
+		dd_schema_t *s = ((*data_dictionary)->schemas + i);
+		printf("%s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		for(int k = 0; k < s->field_count; k++) {
+			dd_datafield_t *f = s->fields[k];
+			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
+			if ( f->fieldtype == STR )
+				printf(" %d", f->fieldsz);
+			printf(")\n");
+		}
 	}
 
-	printf("Freeing fields\n");
-	free(test_str_field);
-	free(test_int_field);
 
-	printf("Freeing schema\n");
-	free(schema->fields);
-	free(schema);
+	exit(EXIT_SUCCESS);
 
+	record_t *recs = malloc(sizeof(record_t) * 1000);
+
+	free(recs);
 	printf("exiting\n");
 	return EXIT_SUCCESS;
 }

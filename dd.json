@@ -17,7 +17,12 @@
 		"status":                 { "type": "STR", "size": 24 },
 		"external_reference":     { "type": "STR", "size": 96 },
 		"subscription_lifecycle": { "type": "STR", "size": 16 },
-		"churn_type":             { "type": "STR", "size": 16 }
+		"churn_type":             { "type": "STR", "size": 16 },
+
+		"created_dt":             { "type": "TIMESTAMP" },
+		"record_counter":	  { "type": "UI64" },
+		"record_msg":		  { "type": "STR", "size": 128 },
+		"record_id":              { "type": "UUID" }
 	},
 	"tables": {
 		"subscriptions": {
@@ -27,8 +32,29 @@
 				"customer_id",
 				"project_id",
 				"is_active",
+				"product_type",
+				"plan_id",
+				"deferred_plan_id",
+				"currency",
+				"plan_price",
+				"quantity",
 				"term_start",
-				"term_end"
+				"term_end",
+				"autorenew",
+				"canceled_at",
+				"status",
+				"external_reference",
+				"subscription_lifecycle",
+				"churn_type"
+			]
+		},
+		"test_table": {
+			"size": 1000,
+			"fields": [
+				"record_id",
+				"created_dt",
+				"record_msg",
+				"record_counter"
 			]
 		}
 	}

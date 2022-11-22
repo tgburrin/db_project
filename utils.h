@@ -21,6 +21,7 @@
 #include <time.h>
 #include <stdbool.h>
 #include <regex.h>
+#include <uuid/uuid.h>
 
 #define DEFAULT_BASE "/data/tables"
 #define DEFAULT_SHM "/dev/shm"
