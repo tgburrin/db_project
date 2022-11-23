@@ -33,6 +33,7 @@ dd_table_t *init_dd_table(char *table_name, dd_schema_t *schema, uint64_t size) 
 	dd_table_t *t = malloc(sizeof(dd_table_t));
 	memset(t, 0, sizeof(dd_table_t));
 	strcpy(t->table_name, table_name);
+	t->header_size = sizeof(dd_table_t);
 	t->total_record_count = size;
 	t->schema = schema;
 	return t;

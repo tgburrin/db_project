@@ -67,7 +67,7 @@ dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 
 char *map_enum_to_name(datatype_t);
 
-int add_dd_table(data_dictionary_t **, dd_table_t);
+int add_dd_table(data_dictionary_t **, dd_table_t *);
 int add_dd_schema(data_dictionary_t **, dd_schema_t *);
 int add_dd_field(data_dictionary_t **, dd_datafield_t *);
 

@@ -46,7 +46,17 @@
 				"external_reference",
 				"subscription_lifecycle",
 				"churn_type"
-			]
+			],
+			"indexes": {
+				"subscription_id_idx_uq": {
+					"unique": true,
+					"fields": ["subscription_id"]
+				},
+				"customer_id_idx": {
+					"unique": false,
+					"fields": ["customer_id"]
+				}
+			}
 		},
 		"test_table": {
 			"size": 1000,
@@ -55,7 +65,13 @@
 				"created_dt",
 				"record_msg",
 				"record_counter"
-			]
+			],
+			"indexes": {
+				"record_id_idx_uq": {
+					"unique": true,
+					"fields": ["record_id"]
+				}
+			}
 		}
 	}
 }

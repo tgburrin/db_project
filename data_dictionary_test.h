@@ -231,9 +231,9 @@ int data_dictionary_test (int argc, char **argv) {
 	}
 	printf("Running data dictionary test\n");
 	printf("Field list:\n");
-	for(int i = 0; i<(*data_dictionary)->num_fields; i++) {
+	for(int i = 0; i<(*data_dictionary)->num_fields; i++)
 		printf("%s\n", ((*data_dictionary)->fields + i)->field_name);
-	}
+
 	printf("Schemas:\n");
 	for(int i = 0; i<(*data_dictionary)->num_schemas; i++) {
 		dd_schema_t *s = ((*data_dictionary)->schemas + i);
