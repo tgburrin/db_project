@@ -1,3 +1,13 @@
+/*
+ ============================================================================
+ Name        : db_server.c
+ Author      : Tim Burrington
+ Version     :
+ Copyright   : 
+ Description : Hello World in C, Ansi-style
+ ============================================================================
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -14,8 +24,7 @@
 
 #include <time.h>
 
-#include "data_dictionary_test.h"
-#include "db_interface.h"
+#include <db_interface.h>
 
 #define NUM_SUBSCRIPTIONS 15000000
 //#define NUM_SUBSCRIPTIONS 1000
@@ -680,7 +689,7 @@ void load_subs_from_file(
 	journal_sync_on(j);
 }
 
-int main_app (int argc, char **argv) {
+int main (int argc, char **argv) {
 	char timestr[31];
 	int counter;
 
@@ -914,8 +923,4 @@ int main_app (int argc, char **argv) {
 
 	printf("Done\n");
 	exit(EXIT_SUCCESS);
-}
-
-int main (int argc, char **argv) {
-	exit(data_dictionary_test(argc, argv));
 }
