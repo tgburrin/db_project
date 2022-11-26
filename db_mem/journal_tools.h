@@ -30,7 +30,7 @@ typedef struct JournalRecord {
 	char objkey[DB_OBJECT_NAME_SZ];
 	char objname[DB_OBJECT_NAME_SZ];
 	size_t objsz;
-	void *objdata;
+	char *objdata;
 } journal_record_t;
 
 bool new_journal (journal_t *j);

@@ -9,7 +9,7 @@ void init_index_node(idxnode_t *idxnode) {
 	idxnode->prev = 0;
 }
 
-int num_child_records(index_t *idx, idxnode_t *idxnode) {
+int num_child_records(idxnode_t *idxnode) {
 	int rv = -1;
 	if ( !idxnode->is_leaf ) {
 		rv = 0;
@@ -21,7 +21,7 @@ int num_child_records(index_t *idx, idxnode_t *idxnode) {
 	return rv;
 }
 
-int find_node_index(index_t *idx, idxnode_t *idxnode, void *find_rec, int *index) {
+int find_node_index(index_t *idx, idxnode_t *idxnode, char *find_rec, int *index) {
 	int rv = 0;
 	if ( idxnode->num_children == 0 )
 		return rv;
@@ -61,7 +61,7 @@ int find_node_index(index_t *idx, idxnode_t *idxnode, void *find_rec, int *index
 	return rv;
 }
 
-idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, void *find_rec) {
+idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, char *find_rec) {
 	if ( idxnode->is_leaf )
 			return idxnode;
 
@@ -76,8 +76,8 @@ idxnode_t *find_node(index_t *idx, idxnode_t *idxnode, void *find_rec) {
 	return find_node(idx, ((indexkey_t *)(current->children[index]))->childnode, find_rec);
 }
 
-void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec) {
-	void *rv = NULL;
+char *find_record(index_t *idx, idxnode_t *idxnode, char *find_rec) {
+	char *rv = NULL;
 
 	idxnode = find_node(idx, idxnode, find_rec);
 	int index = 0, found = 0;
@@ -94,12 +94,12 @@ void *find_record(index_t *idx, idxnode_t *idxnode, void *find_rec) {
 			current = (idxnode_t *)current->next;
 
 	if ( found == 0 && (*idx->compare_key)(current->children[index], find_rec) == 0 )
-		rv = current->children[index];
+		rv = (char *)current->children[index];
 
 	return rv;
 }
 
-idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key) {
+idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, char *key) {
 	uint16_t nc = idxnode->num_children / 2;
 	idxnode_t *rv = 0;
 
@@ -108,7 +108,7 @@ idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key) {
 	if ( (*idx->compare_key)(idxnode->children[nc], key) < 0 )
 		nc++;
 
-	if ( (void *)idxnode->parent != (void *)idxnode ) {
+	if ( (char *)idxnode->parent != (char *)idxnode ) {
 		// check lower range for availability, if we can locate there
 		if ( idxnode->prev != NULL && idxnode->is_leaf && (*idx->compare_key)(idxnode->children[0], key) > 0 )
 			if ( ((idxnode_t *)idxnode->prev)->num_children < IDX_ORDER )
@@ -170,7 +170,7 @@ idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key) {
 
 		}
 
-	} else if ( (void *)idxnode->parent == (void *)idxnode ) {
+	} else if ( (char *)idxnode->parent == (char *)idxnode ) {
 		idxnode_t *new_left, *new_right, *child_node;
 		void *new_left_k, *new_right_k;
 		void *old_left_k = 0, *old_right_k = 0;
@@ -240,15 +240,15 @@ idxnode_t *split_node(index_t *idx, idxnode_t *idxnode, void *key) {
 	return rv;
 }
 
-void update_max_value (index_t *idx, idxnode_t *parent_idx, idxnode_t *idxnode, void *new_key) {
+void update_max_value (index_t *idx, idxnode_t *parent_idx, idxnode_t *idxnode, char *new_key) {
 	indexkey_t *current_key;
 	int i = 0;
 
-	if ( (void *)parent_idx != (void *)idxnode ) {
+	if ( (char *)parent_idx != (char *)idxnode ) {
 		for(i=0; i < parent_idx->num_children; i++) {
-			current_key = parent_idx->children[i];
+			current_key = (indexkey_t *)parent_idx->children[i];
 			if ( ((indexkey_t *)current_key)->childnode == idxnode ) {
-				(*idx->copy_key)(new_key, current_key);
+				(*idx->copy_key)(new_key, (char *)current_key);
 				((indexkey_t *)current_key)->childnode = idxnode;
 				break;
 			}
@@ -258,7 +258,7 @@ void update_max_value (index_t *idx, idxnode_t *parent_idx, idxnode_t *idxnode, 
 	}
 }
 
-idxnode_t *add_node_value (index_t *idx,idxnode_t *idxnode, void *key) {
+idxnode_t *add_node_value (index_t *idx,idxnode_t *idxnode, char *key) {
 
 	if ( idxnode->num_children >= IDX_ORDER )
 		idxnode = split_node(idx, idxnode, key);
@@ -267,7 +267,7 @@ idxnode_t *add_node_value (index_t *idx,idxnode_t *idxnode, void *key) {
 	for( i=0; i < idxnode->num_children && (*idx->compare_key)(idxnode->children[i], key) < 0; i++ );
 
 	if(i < idxnode->num_children) {
-		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(void *) * (idxnode->num_children - i));
+		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(char *) * (idxnode->num_children - i));
 	} else if ( i == idxnode->num_children ) {
 		update_max_value(idx, (idxnode_t *)idxnode->parent, (idxnode_t *)idxnode, key);
 	}
@@ -282,15 +282,15 @@ idxnode_t *add_node_value (index_t *idx,idxnode_t *idxnode, void *key) {
 	if ( !idxnode->is_leaf ) {
 		idxnode->children[i] = key;
 	} else {
-		indexkey_t *new_key = (*idx->create_key)();
-		(*idx->copy_key)(key, new_key);
-		idxnode->children[i] = new_key;
+		indexkey_t *new_key = (indexkey_t *)(*idx->create_key)();
+		(*idx->copy_key)(key, (char *)new_key);
+		idxnode->children[i] = (char *)new_key;
 	}
 
 	return idxnode;
 }
 
-bool add_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
+bool add_index_value (index_t *idx, idxnode_t *idxnode, char *key) {
 	bool rv = false;
 	if ( idxnode->is_leaf ) {
 		if ( idx->is_unique ) {
@@ -334,11 +334,11 @@ bool add_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
 	return rv;
 }
 
-void collapse_nodes(index_t *idx, idxnode_t *idxnode) {
+void collapse_nodes(idxnode_t *idxnode) {
 	if ( idxnode->is_leaf )
 			return;
 
-	int nc = num_child_records(idx, idxnode);
+	int nc = num_child_records(idxnode);
 
 	//should this be < or <=?
 	if ( nc <= IDX_ORDER && nc > 0 ) {
@@ -374,7 +374,7 @@ void collapse_nodes(index_t *idx, idxnode_t *idxnode) {
 	}
 }
 
-bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
+bool remove_node_value(index_t *idx, idxnode_t *idxnode, char *key) {
 	void *v;
 	//char msg[128];
 	bool success = false;
@@ -429,7 +429,7 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 
 						if ( move_right > 0 && idxnode->next != NULL ) {
 							c = (idxnode_t *)idxnode->next;
-							memmove(c->children + move_right, c->children, sizeof(void *) * c->num_children);
+							memmove(c->children + move_right, c->children, sizeof(char *) * c->num_children);
 							for ( int k = 0; k < move_right; k++ ) {
 								c->children[k] = idxnode->children[move_left + k];
 								if ( !c->is_leaf )
@@ -463,7 +463,7 @@ bool remove_node_value(index_t *idx, idxnode_t *idxnode, void *key) {
 					}
 				}
 
-				if ( (void *)idxnode != (void *)idxnode->parent ) {
+				if ( (char *)idxnode != (char *)idxnode->parent ) {
 					if ( idxnode->num_children == 0 ) {
 						if ( idxnode-> prev != NULL )
 							((idxnode_t *)idxnode->prev)->next = idxnode->next;
@@ -611,13 +611,13 @@ void write_file_from_index(index_t *idx) {
 	free(buffer);
 }
 
-bool remove_index_value (index_t *idx, idxnode_t *idxnode, void *key) {
+bool remove_index_value (index_t *idx, idxnode_t *idxnode, char *key) {
 	idxnode_t *leaf_node = find_node(idx, idxnode, key);
 
 	bool success = remove_node_value(idx, leaf_node, key);
 
-	if ( (void *)idxnode == (void *)idxnode->parent )
-			collapse_nodes(idx, idxnode);
+	if ( (char *)idxnode == (char *)idxnode->parent )
+			collapse_nodes(idxnode);
 
 	return success;
 }
@@ -676,7 +676,7 @@ void print_tree_totals(index_t *idx, idxnode_t *idxnode, int *counter) {
 		print_tree_totals(idx, ((indexkey_t *)(s->children[0]))->childnode, counter);
 }
 
-void print_index_scan_lookup(index_t *idx, void *key) {
+void print_index_scan_lookup(index_t *idx, char *key) {
 	printf("Performing an index scan\n");
 	idxnode_t *i = &idx->root_node;
 	while ( !i->is_leaf )
@@ -687,7 +687,7 @@ void print_index_scan_lookup(index_t *idx, void *key) {
 	(*idx->print_key)(i->children[i->num_children-1], right);
 
 	printf("Starting with %p (%s -> %s)\n",
-			i,
+			(void *)i,
 			left,
 			right);
 	int index = -1;
@@ -712,7 +712,7 @@ void print_index_scan_lookup(index_t *idx, void *key) {
 		(*idx->print_key)(i->children[index], msg);
 		printf("Found key %s on %p in index %d %" PRIu64 " leaves in\n",
 				msg,
-				i,
+				(void *)i,
 				index,
 				leafcounter);
 		for( ;; ) {
@@ -720,7 +720,7 @@ void print_index_scan_lookup(index_t *idx, void *key) {
 			(*idx->print_key)(i->children[i->num_children-1], right);
 
 			printf("%p %s (%s -> %s)\n",
-					i,
+					(void *)i,
 					(void *)i == (void *)i->parent ? "root" : i->is_leaf ? "leaf" : "node",
 					left,
 					right

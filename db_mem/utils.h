@@ -26,6 +26,8 @@
 #define DEFAULT_BASE "/data/tables"
 #define DEFAULT_SHM "/dev/shm"
 
+struct timespec;
+
 #define DB_OBJECT_NAME_SZ 64
 
 #define ISO8601_UTC_DATETIME_EXPR "^([0-9]{4}-[0-2][0-9]-[0-3][0-9])[ T]?([0-2][0-9]:[0-5][0-9]:[0-6][0-9]\\.?[0-9]+?)?(Z|[+]00)?$"

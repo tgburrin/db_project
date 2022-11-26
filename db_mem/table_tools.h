@@ -25,9 +25,9 @@
 
 typedef struct TableBase table_t;
 
-typedef uint64_t (*add_record_f)(table_t *, void *);
-typedef void *(*read_record_f)(table_t *, uint64_t);
-typedef bool (*delete_record_f)(table_t *, uint64_t, void *);
+typedef uint64_t (*add_record_f)(table_t *, char *);
+typedef char *(*read_record_f)(table_t *, uint64_t);
+typedef bool (*delete_record_f)(table_t *, uint64_t, char *);
 
 typedef struct TableBase {
 	char table_name[DB_OBJECT_NAME_SZ];
@@ -46,13 +46,17 @@ typedef struct TableBase {
 
 	uint64_t *used_slots;
 	uint64_t *free_slots;
-	void *data;
+	char *data;
 } table_t;
 
 int open_table(table_t *tablemeta, table_t **mapped_table);
 int close_table(table_t *mapped_table);
 
-int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table);
-int close_dd_table(dd_table_t *mapped_table);
+int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table);
+int close_dd_table(db_table_t *mapped_table);
+
+uint64_t add_db_record(db_table_t *, char *);
+bool delete_db_record(db_table_t *, uint64_t, char *);
+char * read_db_record(db_table_t *, uint64_t);
 
 #endif /* TABLE_TOOLS_H_ */

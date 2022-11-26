@@ -180,7 +180,7 @@ bool start_application (message_handler_list_t *h) {
 					}
 					if ( ac + 1 >= MAX_CONNECTIONS ) {
 						uint16_t msgsz = 4096;
-						void *errmsg = malloc(msgsz);
+						char *errmsg = malloc(msgsz);
 						bzero(errmsg, msgsz);
 						((char *)errmsg)[0] = stx;
 						format_error_reponse("Too many connections", errmsg + sizeof(char) + sizeof(uint16_t), msgsz - 3);
@@ -207,7 +207,7 @@ bool start_application (message_handler_list_t *h) {
 				bool close_conn = false;
 				uint16_t buffsz = 4096;
 				int recv_flag = MSG_PEEK;
-				void *buffer;
+				char *buffer;
 
 				int rb = 0;
 				if ( buffers[cnt].bytes_remaining > 0 &&
@@ -238,7 +238,7 @@ bool start_application (message_handler_list_t *h) {
 								// There are 2 messages in the buffer, walk it back to 1
 								i--;
 								break;
-							} else if ( stx_cnt == 1 && i + sizeof(uint16_t) >= rb) {
+							} else if ( stx_cnt == 1 && i + sizeof(uint16_t) >= (unsigned long int)rb) {
 								// There is 1 message at the end of the buffer and the size would
 								// be split into 2 iterations
 								i--;
@@ -307,7 +307,7 @@ bool start_application (message_handler_list_t *h) {
 
 				if ( buffers[cnt].msg_sz > 0 && buffers[cnt].bytes_remaining == 0 ) {
 					//printf("processing message '%s' (%d bytes)\n", buffers[cnt].msgbuf, buffers[cnt].msg_sz);
-					void *response = NULL, *errors = NULL;
+					char *response = NULL, *errors = NULL;
 
 					process_message(h, buffers[cnt].msgbuf, (char **)&response, NULL);
 
@@ -363,11 +363,20 @@ bool start_application (message_handler_list_t *h) {
 uint16_t process_message (message_handler_list_t *h, char *payload, char **response, char **errors) {
 	uint16_t rv = 0;
 	cJSON *doc = NULL;
+
+
 	if ( (doc = cJSON_Parse(payload)) == NULL ) {
 		rv++;
 		char *err = NULL;
-		if ( (err = (char *)cJSON_GetErrorPtr()) != NULL )
+		if ( (err = (char *)cJSON_GetErrorPtr()) != NULL ) {
 			fprintf(stderr, "Error parsing json: %s\n", err);
+			if ( errors != NULL ) {
+				size_t msglen = sizeof(char) * strlen(err) + 21;
+				*errors = malloc(msglen);
+				bzero(*errors, msglen);
+				sprintf(*errors, "Error parsing json: %s", err);
+			}
+		}
 		return rv;
 	}
 

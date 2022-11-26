@@ -10,7 +10,7 @@
 int open_table(table_t *tablemeta, table_t **mapped_table) {
 	int rv = 0, i = 0;
 	int fd = -1;
-	void *dbfile;
+	char *dbfile;
 	table_t *mt;
 	char *tpth, *table_file_name;
 
@@ -53,7 +53,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 
 	}
 
-	mt = dbfile;
+	mt = (table_t *)dbfile;
 
 	if ( mt->total_record_count == 0 ||
 		(mt->total_record_count == tablemeta->total_record_count && mt->record_size == tablemeta->record_size)) {
@@ -63,7 +63,7 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 		copy_and_replace_file(tpth, DEFAULT_SHM, table_file_name);
 		fd = open(shmfile, O_RDWR, 0640);
 		dbfile = mmap(NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-		mt = dbfile;
+		mt = (table_t *)dbfile;
 	} else if ( mt->total_record_count != tablemeta->total_record_count ||
 				mt->record_size != tablemeta->record_size) {
 		// remap event
@@ -79,22 +79,22 @@ int open_table(table_t *tablemeta, table_t **mapped_table) {
 		mt->total_record_count = tablemeta->total_record_count;
 		mt->free_record_slot = tablemeta->total_record_count - 1;
 
-		void *offset = dbfile + sizeof(table_t);
+		char *offset = dbfile + sizeof(table_t);
 		mt->used_slots = (uint64_t *) (offset);
 
 		offset += sizeof(uint64_t) * tablemeta->total_record_count;
 		mt->free_slots = (uint64_t *) (offset);
 
 		offset += sizeof(uint64_t) * tablemeta->total_record_count;
-		mt->data = (void *) (offset);
+		mt->data = offset;
 
-		for(int i = 0; i < mt->total_record_count; i++) {
+		for(uint64_t i = 0; i < mt->total_record_count; i++) {
 			mt->free_slots[mt->free_record_slot - i] = i;
 			mt->used_slots[i] = UINT64_MAX;
 		}
 
 	} else {
-		void *offset = dbfile + sizeof(table_t);
+		char *offset = dbfile + sizeof(table_t);
 		mt->used_slots = (uint64_t *) (offset);
 
 		offset += sizeof(uint64_t) * tablemeta->total_record_count;
@@ -146,11 +146,11 @@ int close_table(table_t *mapped_table) {
 }
 
 // Data Dictionary table structs
-int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
+int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 	int rv = 0, i = 0;
 	int fd = -1;
 	char *dbfile;
-	dd_table_t *mt;
+	db_table_t *mt;
 	char *tpth, *table_file_name;
 
 	table_file_name = malloc(sizeof(char) * (strlen(tablemeta->table_name) + 5));
@@ -163,8 +163,8 @@ int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
 
 	size_t data_size = tablemeta->schema->record_size * tablemeta->total_record_count;
 	size_t metadatasize =
-			sizeof(dd_table_t) +
-			sizeof(dd_schema_t) +
+			sizeof(db_table_t) +
+			sizeof(dd_table_schema_t) +
 			sizeof(dd_datafield_t**) +
 			sizeof(dd_datafield_t) * tablemeta->schema->field_count +
 			sizeof(uint64_t) * tablemeta->total_record_count * 2;
@@ -199,10 +199,10 @@ int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
 
 	printf("File opened and mapped\n");
 	char *offset = dbfile;
-	mt = (dd_table_t *)offset;
-	offset += sizeof(dd_table_t);
-	mt->schema = (dd_schema_t *)offset;
-	offset += sizeof(dd_schema_t);
+	mt = (db_table_t *)offset;
+	offset += sizeof(db_table_t);
+	mt->schema = (dd_table_schema_t *)offset;
+	offset += sizeof(dd_table_schema_t);
 
 	printf("Checking existing table details\n");
 	if ( mt->total_record_count == 0 ||
@@ -214,13 +214,13 @@ int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
 		fd = open(shmfile, O_RDWR, 0640);
 		dbfile = mmap(NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		offset = dbfile;
-		mt = (dd_table_t *)offset;
-		printf("Reopened table %s (%p %ld)\n", mt->table_name, mt, sizeof(dd_table_t));
-		offset += sizeof(dd_table_t);
-		mt->schema = (dd_schema_t *)offset;
+		mt = (db_table_t *)offset;
+		printf("Reopened table %s (%p %ld)\n", mt->table_name, (void *)mt, sizeof(db_table_t));
+		offset += sizeof(db_table_t);
+		mt->schema = (dd_table_schema_t *)offset;
 		printf("\ttable has schema %s with %d fields\n",
 				mt->schema->schema_name, mt->schema->field_count);
-		offset += sizeof(dd_schema_t);
+		offset += sizeof(dd_table_schema_t);
 
 		int field_count = tablemeta->schema->field_count;
 		if ( mt->schema->field_count > 0 )
@@ -260,7 +260,7 @@ int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
 		mt->free_record_slot = tablemeta->total_record_count - 1;
 
 		dd_datafield_t *existing_fields = mt->schema->fields;
-		memcpy(mt->schema, tablemeta->schema, sizeof(dd_schema_t));
+		memcpy(mt->schema, tablemeta->schema, sizeof(dd_table_schema_t));
 		mt->schema->fields = existing_fields;
 
 		for(int i=0; i < mt->schema->field_count; i++) {
@@ -268,7 +268,7 @@ int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
 			dd_datafield_t *src = &tablemeta->schema->fields[i];
 			memcpy(dst, src, sizeof(dd_datafield_t));
 		}
-		for(int i = 0; i < mt->total_record_count; i++) {
+		for(uint64_t i = 0; i < mt->total_record_count; i++) {
 			mt->free_slots[mt->free_record_slot - i] = i;
 			mt->used_slots[i] = UINT64_MAX;
 		}
@@ -286,7 +286,7 @@ int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table) {
 	return rv;
 }
 
-int close_dd_table(dd_table_t *mapped_table) {
+int close_dd_table(db_table_t *mapped_table) {
 	int rv = 0, fd = mapped_table->filedes;
 	size_t fs = mapped_table->filesize;
 	size_t tnsz = sizeof(char) * strlen(mapped_table->table_name) + 5;
@@ -310,4 +310,54 @@ int close_dd_table(dd_table_t *mapped_table) {
 
 	free(tn);
 	return rv;
+}
+
+uint64_t add_db_record(db_table_t *tbl, char *record) {
+	char *sr = 0;
+	uint64_t slot = UINT64_MAX;
+	uint64_t cs = tbl->free_record_slot;
+
+	printf("Current free slot is %"PRIu64"\n", tbl->free_slots[cs]);
+
+	if ( cs < tbl->total_record_count ) {
+		slot = tbl->free_slots[cs];
+		sr = (char *)(tbl->data + (slot * tbl->schema->record_size));
+		printf("Moving %ld bytes in from %p to %p\n", (slot * tbl->schema->record_size), (void *)tbl->data, (void *)sr);
+		memcpy(sr, record, tbl->schema->record_size);
+
+		tbl->used_slots[slot] = cs;
+		tbl->free_slots[cs] = tbl->total_record_count;
+		tbl->free_record_slot = cs == 0 ? UINT64_MAX : cs - 1;
+		printf("Next free slot is %"PRIu64"\n", tbl->free_slots[tbl->free_record_slot]);
+	}
+	printf("Added to slot is %"PRIu64"\n", slot);
+
+	return slot;
+}
+
+bool delete_db_record(db_table_t *tbl, uint64_t slot, char *deleted_record) {
+	bool rv = false;
+	char *target = NULL;
+
+	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX) {
+		target = (char *)(tbl->data + (slot * tbl->schema->record_size));
+		if ( deleted_record != NULL )
+			memcpy(deleted_record, target, tbl->schema->record_size);
+		bzero(target, tbl->schema->record_size);
+
+		tbl->used_slots[slot] = UINT64_MAX;
+		tbl->free_record_slot++;
+		tbl->free_slots[tbl->free_record_slot] = slot;
+		rv = true;
+	}
+
+	return rv;
+}
+
+char *read_db_record(db_table_t *tbl, uint64_t slot) {
+	char *record = NULL;
+	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX)
+		record = (char *)(tbl->data + (slot * tbl->schema->record_size));
+
+	return record;
 }

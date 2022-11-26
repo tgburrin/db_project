@@ -70,26 +70,26 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 
 bool subscription_txn_handler(journal_t *, table_t *, index_t **, uint8_t, char, subscription_t *, char *);
 
-void print_subscription_key(void *vk, char *dst);
-void print_customer_key(void *vk, char *dst);
+void print_subscription_key(char *vk, char *dst);
+void print_customer_key(char *vk, char *dst);
 
-int compare_subscription_id (void *a, void *b);
-int compare_customer_id (void *a, void *b);
+int compare_subscription_id (char *a, char *b);
+int compare_customer_id (char *a, char *b);
 
-void * create_subid_key(void);
-void * create_custid_key(void);
+char * create_subid_key(void);
+char * create_custid_key(void);
 
-void release_subid_key(void *);
-void release_custid_key(void *);
+void release_subid_key(char *);
+void release_custid_key(char *);
 
-void * copy_subid_key(void *inkey, void *outkey);
-void * copy_custid_key(void *inkey, void *outkey);
+char * copy_subid_key(char *inkey, char *outkey);
+char * copy_custid_key(char *inkey, char *outkey);
 
-void set_subid_key_value(void *k, uint64_t v);
-void set_custid_key_value(void *k, uint64_t v);
+void set_subid_key_value(char *k, uint64_t v);
+void set_custid_key_value(char *k, uint64_t v);
 
-uint64_t get_subid_key_value(void *k);
-uint64_t get_custid_key_value(void *k);
+uint64_t get_subid_key_value(char *k);
+uint64_t get_custid_key_value(char *k);
 
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
@@ -202,14 +202,14 @@ bool subscription_txn_handler(
 	return rv;
 }
 
-void print_subscription_key(void *vk, char *dst) {
+void print_subscription_key(char *vk, char *dst) {
 	sprintf(dst, "%s (%" PRIu64 ")", ((idxsubidkey_t *)vk)->subscription_id, ((idxsubidkey_t *)vk)->record);
 }
-void print_customer_key(void *vk, char *dst) {
+void print_customer_key(char *vk, char *dst) {
 	sprintf(dst, "%s (%" PRIu64 ")", ((idxcustidkey_t *)vk)->customer_id, ((idxcustidkey_t *)vk)->record);
 }
 
-int compare_subscription_id (void *va, void *vb) {
+int compare_subscription_id (char *va, char *vb) {
 	idxsubidkey_t *a = (idxsubidkey_t *)va;
 	idxsubidkey_t *b = (idxsubidkey_t *)vb;
 
@@ -231,7 +231,7 @@ int compare_subscription_id (void *va, void *vb) {
 		return 1;
 }
 
-int compare_customer_id (void *va, void *vb) {
+int compare_customer_id (char *va, char *vb) {
 	idxcustidkey_t *a = (idxcustidkey_t *)va;
 	idxcustidkey_t *b = (idxcustidkey_t *)vb;
 	//printf("%s vs %s\n", a->orderid, b->orderid);
@@ -253,73 +253,73 @@ int compare_customer_id (void *va, void *vb) {
 		return 1;
 }
 
-void * create_subid_key(void) {
+char * create_subid_key(void) {
 	idxsubidkey_t *newkey = malloc(sizeof(idxsubidkey_t));
 	bzero(newkey, sizeof(idxsubidkey_t));
-	return (void *)newkey;
+	return (char *)newkey;
 }
 
-void * create_custid_key(void) {
+char * create_custid_key(void) {
 	idxcustidkey_t *newkey = malloc(sizeof(idxcustidkey_t));
 	bzero(newkey, sizeof(idxcustidkey_t));
-	return (void *)newkey;
+	return (char *)newkey;
 }
 
-void release_subid_key(void *rec) {
+void release_subid_key(char *rec) {
 	free(((idxsubidkey_t *)rec)->subscription_id);
 }
 
-void release_custid_key(void *rec) {
+void release_custid_key(char *rec) {
 	free(((idxcustidkey_t *)rec)->customer_id);
 }
 
-void *create_subid_key_from_record(void *rec) {
+char *create_subid_key_from_record(char *rec) {
 	subscription_t *s = (subscription_t *)rec;
 	idxsubidkey_t *newkey = malloc(sizeof(idxsubidkey_t));
 	bzero(newkey, sizeof(idxsubidkey_t));
 	newkey->subscription_id = s->subscription_id;
-	return (void *)newkey;
+	return (char *)newkey;
 }
 
-void *create_custid_key_from_record(void *rec) {
+char *create_custid_key_from_record(char *rec) {
 	subscription_t *s = (subscription_t *)rec;
 	idxcustidkey_t *newkey = malloc(sizeof(idxcustidkey_t));
 	bzero(newkey, sizeof(idxcustidkey_t));
 	newkey->customer_id = s->customer_id;
-	return (void *)newkey;
+	return (char *)newkey;
 }
 
-void * copy_subid_key(void *inkey, void *outkey) {
+char * copy_subid_key(char *inkey, char *outkey) {
 	memcpy(outkey, inkey, sizeof(idxsubidkey_t));
 	((idxsubidkey_t *)outkey)->childnode = NULL;
 	return outkey;
 
 }
 
-void * copy_custid_key(void *inkey, void *outkey) {
+char * copy_custid_key(char *inkey, char *outkey) {
 	memcpy(outkey, inkey, sizeof(idxcustidkey_t));
 	((idxcustidkey_t *)outkey)->childnode = NULL;
 	return outkey;
 
 }
 
-void set_subid_key_value(void *k, uint64_t v) {
+void set_subid_key_value(char *k, uint64_t v) {
 	((idxsubidkey_t *)k)->record = v;
 }
 
-void set_custid_key_value(void *k, uint64_t v) {
+void set_custid_key_value(char *k, uint64_t v) {
 	((idxcustidkey_t *)k)->record = v;
 }
 
-uint64_t get_subid_key_value(void *k) {
+uint64_t get_subid_key_value(char *k) {
 	return ((idxsubidkey_t *)k)->record;
 }
 
-uint64_t get_custid_key_value(void *k) {
+uint64_t get_custid_key_value(char *k) {
 	return ((idxcustidkey_t *)k)->record;
 }
 
-uint64_t add_subscription_record(table_t *tbl, void *newrec) {
+uint64_t add_subscription_record(table_t *tbl, char *newrec) {
 	subscription_t *sr = 0;
 	uint64_t slot = UINT64_MAX;
 	uint64_t cs = tbl->free_record_slot;
@@ -339,7 +339,7 @@ uint64_t add_subscription_record(table_t *tbl, void *newrec) {
 	return slot;
 }
 
-bool delete_subscription_record(table_t *tbl, uint64_t slot, void *delrec) {
+bool delete_subscription_record(table_t *tbl, uint64_t slot, char *delrec) {
 	bool rv = false;
 	subscription_t *target;
 
@@ -358,12 +358,12 @@ bool delete_subscription_record(table_t *tbl, uint64_t slot, void *delrec) {
 	return rv;
 }
 
-void * read_subscription_record(table_t *tbl, uint64_t slot) {
+char * read_subscription_record(table_t *tbl, uint64_t slot) {
 	subscription_t *rec = NULL;
 	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX) {
 		rec = &(((subscription_t *)tbl->data)[slot]);
 	}
-	return rec;
+	return (char *)rec;
 }
 
 uint64_t add_subscription(
@@ -380,28 +380,28 @@ uint64_t add_subscription(
 	subkey.record = UINT64_MAX;
 
 	//printf("Finding node where %s is or belongs\n", subkey.subscription_id);
-	idxnode_t *idx_node = find_node(subidx, &subidx->root_node, &subkey);
-	if (find_record(subidx, idx_node, &subkey) != NULL ) {
+	idxnode_t *idx_node = find_node(subidx, &subidx->root_node, (char *)&subkey);
+	if (find_record(subidx, idx_node, (char *)&subkey) != NULL ) {
 		return rec_num;
 	}
 
-	rec_num = (*tbl->add_record)(tbl, subrec);
+	rec_num = (*tbl->add_record)(tbl, (char *)subrec);
 	//printf("Allocated record %"PRIu64"to table\n", rec_num);
 	subkey.record = rec_num;
 
 	char keyrec[64];
-	(*subidx->print_key)(&subkey, keyrec);
+	(*subidx->print_key)((char *)&subkey, keyrec);
 	//printf("Adding index key %s\n", keyrec);
-	add_index_value(subidx, idx_node, &subkey);
+	add_index_value(subidx, idx_node, (char *)&subkey);
 
 	idxcustidkey_t custkey;
 	bzero(&custkey, sizeof(idxcustidkey_t));
 	custkey.customer_id = subrec->customer_id;
 	custkey.record = rec_num;
 
-	(*cusidx->print_key)(&custkey, keyrec);
+	(*cusidx->print_key)((char *)&custkey, keyrec);
 	//printf("Adding index key %s\n", keyrec);
-	add_index_value(cusidx, &cusidx->root_node, &custkey);
+	add_index_value(cusidx, &cusidx->root_node, (char *)&custkey);
 
 	return rec_num;
 }
@@ -418,23 +418,23 @@ uint64_t del_subscription(
 	subkey.subscription_id = subrec->subscription_id;
 	subkey.record = UINT64_MAX;
 
-	if ( (sk = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, &subkey)) == NULL )
+	if ( (sk = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, (char *)&subkey)) == NULL )
 		return rec_num;
 
 	subscription_t dr;
 	bzero(&dr, sizeof(subscription_t));
 
-	rec_num = (uint64_t)((*subidx->get_key_value)(sk));
+	rec_num = (uint64_t)((*subidx->get_key_value)((char *)sk));
 
-	(*tbl->delete_record)(tbl, rec_num, &dr);
+	(*tbl->delete_record)(tbl, rec_num, (char *)&dr);
 
 	idxcustidkey_t custkey;
 	bzero(&custkey, sizeof(idxcustidkey_t));
 	custkey.customer_id = dr.customer_id;
 	custkey.record = rec_num;
 
-	remove_index_value(subidx, &subidx->root_node, sk);
-	remove_index_value(cusidx, &cusidx->root_node, &custkey);
+	remove_index_value(subidx, &subidx->root_node, (char *)sk);
+	remove_index_value(cusidx, &cusidx->root_node, (char *)&custkey);
 
 	return rec_num;
 }
@@ -446,10 +446,10 @@ bool find_subscription_by_id(table_t *tbl, index_t *subidx, char *subscription_i
 	k.subscription_id = subscription_id;
 	k.record = UINT64_MAX;
 
-	if ((kp = find_record(subidx, &subidx->root_node, &k)) != NULL) {
+	if ((kp = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, (char *)&k)) != NULL) {
 		printf("Subscription %s found\n", subscription_id);
-		uint64_t slot = (uint64_t)((*subidx->get_key_value)(kp));
-		subscription_t *fs = (*tbl->read_record)(tbl, slot);
+		uint64_t slot = (uint64_t)((*subidx->get_key_value)((char *)kp));
+		subscription_t *fs = (subscription_t *)(*tbl->read_record)(tbl, slot);
 		memcpy(subrec, fs, sizeof(subscription_t));
 		rv = true;
 	} else {
@@ -466,8 +466,8 @@ uint64_t find_subscription_slot(table_t *tbl, index_t *subidx, subscription_t *s
 	k.subscription_id = subrec->subscription_id;
 	k.record = UINT64_MAX;
 
-	if ((kp = find_record(subidx, &subidx->root_node, &k)) != NULL)
-		rv = (uint64_t)((*subidx->get_key_value)(kp));
+	if ((kp = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, (char *)&k)) != NULL)
+		rv = (uint64_t)((*subidx->get_key_value)((char *)kp));
 
 	return rv;
 }
@@ -538,8 +538,8 @@ bool subscription_txn_handler(
 
 			if ( txn_valid ) {
 				uint64_t recnum = UINT64_MAX;
-				if ( (recnum = add_subscription_record(tbl, subrec)) < UINT64_MAX ) {
-					subscription_t *newrec = read_subscription_record(tbl, recnum);
+				if ( (recnum = add_subscription_record(tbl, (char *)subrec)) < UINT64_MAX ) {
+					subscription_t *newrec = (subscription_t *)read_subscription_record(tbl, recnum);
 
 					for(int i=0; i < idxcnt; i++) {
 						k = (*idxs[i]->create_record_key)((void *)newrec);
@@ -827,7 +827,7 @@ int main (int argc, char **argv) {
 	k.subscription_id = "sub_PcHdKYt3rmiBNl";
 	k.record = UINT64_MAX;
 
-	print_index_scan_lookup(&subid_idx, &k);
+	print_index_scan_lookup(&subid_idx, (char *)&k);
 
 	clock_gettime(CLOCK_REALTIME, &start_tm);
 	if ( find_subscription_by_id(st, &subid_idx, "su_1PNT9d6ahvCu8Z", &s) ) {

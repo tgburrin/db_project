@@ -177,7 +177,7 @@ journal_record_t *read_journal (journal_t *j) {
 					rec = realloc(rec, rec->msgsz);
 					// realloc does not initialize the new memory
 					memset(rec + sizeof(journal_record_t), 0, rec->objsz);
-					rec->objdata = rec + sizeof(journal_record_t);
+					rec->objdata = (char *)rec + sizeof(journal_record_t);
 					rb = 0;
 					while ( (c = read(j->jfd, rec->objdata + rb, rec->objsz - rb)) > 0 ) {
 						if ( c < 0 )

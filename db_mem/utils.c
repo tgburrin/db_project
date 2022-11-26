@@ -84,7 +84,7 @@ size_t initialize_file(char *filepath, size_t sz, int *rfd) {
 int copy_and_replace_file(char *src_path, char *dst_path, char *filename) {
 	int rv = 0, rfd = -1, wfd = -1;
 	char *src_file, *dst_file;
-	void *buffer;
+	char *buffer;
 	size_t sfile = strlen(src_path) + strlen(filename) + sizeof(char)*2;
 	size_t dfile = strlen(dst_path) + strlen(filename) + sizeof(char)*2;
 	size_t read_size = sizeof(char) * 1024 * 8; // 8kb aka 2 pages
@@ -112,7 +112,7 @@ int copy_and_replace_file(char *src_path, char *dst_path, char *filename) {
 			bzero(buffer, read_size);
 
 			while( (rb = read(rfd, buffer, read_size)) > 0 ) {
-				long written = 0;
+				size_t written = 0;
 				int bytes = 0;
 
 				while ( written < rb && (bytes = write(wfd, buffer + sizeof(char) * written, rb)) >= 0 )
@@ -189,19 +189,15 @@ bool parse_time(char *timestr, struct timespec *tm) {
 		for ( i=1; i < regmsz && m[i].rm_so >= 0; i++ ) {
 			bzero(msg, msglen);
 			strncpy(msg, timestr + m[i].rm_so, m[i].rm_eo - m[i].rm_so);
-			//printf("Time Match %d is %d -> %d -> %s\n", i, m[i].rm_so, m[i].rm_eo, msg);
 			switch (i) {
 				case 1:
 					pt.tm_hour = atoi(msg);
-					//printf("Adding %d hours\n", pt.tm_hour);
 					break;
 				case 2:
 					pt.tm_min = atoi(msg);
-					//printf("Adding %d minutes\n", pt.tm_min);
 					break;
 				case 3:
 					pt.tm_sec = atoi(msg);
-					//printf("Adding %d seconds\n", pt.tm_sec);
 					break;
 				case 4: ;
 					uint8_t len = 9 - strlen(msg);
@@ -214,7 +210,6 @@ bool parse_time(char *timestr, struct timespec *tm) {
 			}
 		}
 		if ( i >= 3 ) {
-			//printf("Adding %ld seconds based on time %s\n", mktime(&pt) - mktime(&day), timestr);
 			tm->tv_sec += mktime(&pt) - mktime(&day);
 			rv = true;
 		}
@@ -241,7 +236,6 @@ bool parse_date(char *datestr, struct timespec *tm) {
 			int timepart = 0;
 			bzero(msg, msglen);
 			strncpy(msg, datestr + m[i].rm_so, m[i].rm_eo - m[i].rm_so);
-			//printf("Date Match %d is %d -> %d -> %s\n", i, m[i].rm_so, m[i].rm_eo, msg);
 			switch (i) {
 				case 1:
 					timepart = atoi(msg);
@@ -284,7 +278,6 @@ bool parse_timestamp(char *timestr, struct timespec *tm) {
 		for ( int i=1; i < regmsz && m[i].rm_so >= 0; i++ ) {
 			bzero(msg, msglen);
 			strncpy(msg, timestr + m[i].rm_so, m[i].rm_eo - m[i].rm_so);
-			//printf("Match %d is %d -> %d -> %s\n", i, m[i].rm_so, m[i].rm_eo, msg);
 			switch (i) {
 				case 1:
 					parse_date(msg, tm);
