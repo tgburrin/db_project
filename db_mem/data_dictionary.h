@@ -8,6 +8,7 @@
 #ifndef DATA_DICTIONARY_H_
 #define DATA_DICTIONARY_H_
 
+#include <cjson/cJSON.h>
 #include "utils.h"
 
 typedef enum { STR, TIMESTAMP, BOOL, I8, UI8, I16, UI16, I32, UI32, I64, UI64, UUID } datatype_t;
@@ -25,7 +26,8 @@ typedef struct DDSchema {
 	char schema_name[DB_OBJECT_NAME_SZ];
 	uint8_t field_count;
 	uint16_t record_size;
-	dd_datafield_t **fields;
+	uint8_t fields_sz;  // this is the size of the array below
+	dd_datafield_t *fields;
 } dd_schema_t;
 
 typedef struct DDTable {
@@ -44,13 +46,16 @@ typedef struct DDTable {
 	uint32_t writer_session;
 
 	dd_schema_t *schema;
-
 	uint64_t *used_slots;
 	uint64_t *free_slots;
 	void *data;
 } dd_table_t;
 
 typedef struct DataDictionary {
+	uint32_t num_alloc_fields;
+	uint32_t num_alloc_schemas;
+	uint32_t num_alloc_tables;
+
 	uint32_t num_fields;
 	uint32_t num_schemas;
 	uint32_t num_tables;
@@ -59,17 +64,24 @@ typedef struct DataDictionary {
 	dd_table_t *tables;
 } data_dictionary_t;
 
-data_dictionary_t **init_data_dictionary();
+data_dictionary_t **init_data_dictionary(uint32_t, uint32_t, uint32_t);
+data_dictionary_t **build_dd_from_json(char *);
+void release_data_dictionary(data_dictionary_t **);
+char *read_dd_json_file(char *);
 dd_table_t *init_dd_table(char *, dd_schema_t *, uint64_t);
-dd_schema_t *init_dd_schema(char *);
+dd_schema_t *init_dd_schema(char *, uint8_t);
 dd_datafield_t *init_dd_field_type(char *, datatype_t, uint8_t);
 dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 
-char *map_enum_to_name(datatype_t);
+const char *map_enum_to_name(datatype_t);
 
 int add_dd_table(data_dictionary_t **, dd_table_t *);
 int add_dd_schema(data_dictionary_t **, dd_schema_t *);
 int add_dd_field(data_dictionary_t **, dd_datafield_t *);
+
+uint64_t add_db_record(dd_table_t *, void *);
+bool delete_db_record(dd_table_t *, uint64_t, void *);
+void * read_db_record(dd_table_t *, uint64_t);
 
 uint8_t get_dd_field_size(datatype_t, uint8_t);
 int add_dd_schema_field(dd_schema_t *, dd_datafield_t *);

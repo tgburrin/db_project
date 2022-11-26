@@ -59,7 +59,7 @@
 			}
 		},
 		"test_table": {
-			"size": 1000,
+			"size": 10,
 			"fields": [
 				"record_id",
 				"created_dt",

@@ -21,6 +21,7 @@
 #include <sys/mman.h>
 
 #include "utils.h"
+#include "data_dictionary.h"
 
 typedef struct TableBase table_t;
 
@@ -50,5 +51,8 @@ typedef struct TableBase {
 
 int open_table(table_t *tablemeta, table_t **mapped_table);
 int close_table(table_t *mapped_table);
+
+int open_dd_table(dd_table_t *tablemeta, dd_table_t **mapped_table);
+int close_dd_table(dd_table_t *mapped_table);
 
 #endif /* TABLE_TOOLS_H_ */
