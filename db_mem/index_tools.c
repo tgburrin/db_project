@@ -734,3 +734,16 @@ void print_index_scan_lookup(index_t *idx, char *key) {
 		printf("Key %s could not be found in %" PRIu64 " leaves\n", msg, leafcounter);
 	}
 }
+
+/* new data dictionary functions */
+
+uint64_t dbidx_num_child_records(db_idxnode_t *idxnode) {
+	if ( idxnode->is_leaf )
+		return (uint64_t)idxnode->num_children;
+
+	int rv = 0;
+	for (int i=0; i < idxnode->num_children; i++)
+		rv += (uint64_t)((db_idxnode_t *)idxnode->children[i])->num_children;
+
+	return rv;
+}

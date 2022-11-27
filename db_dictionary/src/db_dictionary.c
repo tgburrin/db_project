@@ -73,7 +73,6 @@ int main (int argc, char **argv) {
 	for(int i = 0; i<(*data_dictionary)->num_fields; i++)
 		printf("%s\n", (&(*data_dictionary)->fields[i])->field_name);
 
-	dd_table_schema_t *subs = NULL;
 	printf("Schemas:\n");
 	for(int i = 0; i<(*data_dictionary)->num_schemas; i++) {
 		dd_table_schema_t *s = &(*data_dictionary)->schemas[i];
@@ -85,20 +84,12 @@ int main (int argc, char **argv) {
 				printf(" %d", f->fieldsz);
 			printf(")\n");
 		}
-		if ( strcmp(s->schema_name, "subscriptions") == 0 )
-			subs = s;
 	}
-
-	db_table_t *tbl = NULL;
-	db_table_t *mapped_tbl = NULL;
 
 	printf("Tables:\n");
 	for(int i = 0; i<(*data_dictionary)->num_tables; i++) {
 		db_table_t *t = &(*data_dictionary)->tables[i];
 		dd_table_schema_t *s = t->schema;
-
-		if ( strcmp(t->table_name, "subscriptions") == 0 )
-			printf("%p vs %p\n", t->schema, subs);
 
 		printf("%s\n", t->table_name);
 		printf("\tschema %s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
@@ -109,12 +100,20 @@ int main (int argc, char **argv) {
 				printf(" %d", f->fieldsz);
 			printf(")\n");
 		}
-
-		if ( strcmp(t->table_name, "test_table") == 0 )
-			tbl = t;
+		printf("\tIndexes:\n");
+		for(int k = 0; k < t->num_indexes; k++) {
+			db_index_schema_t *idx = t->indexes[k].idx_schema;
+			printf("\t\t%s (%s of order %d): ", t->indexes[k].index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
+			for(int f = 0; f < idx->fields_sz; f++)
+				printf("%s%s", f == 0 ? "" : ", ", idx->fields[f]->field_name);
+			printf("\n");
+		}
 	}
 
+	/*
+	db_table_t *tbl = find_dd_table(data_dictionary, "test_table");
 	if ( tbl != NULL ) {
+		db_table_t *mapped_tbl = NULL;
 		char rec_uuid[37];
 		bzero(&rec_uuid, sizeof(rec_uuid));
 
@@ -131,17 +130,17 @@ int main (int argc, char **argv) {
 		record_t *outrec = NULL;
 
 		open_dd_table(tbl, &mapped_tbl);
-		uint64_t rs1 = add_db_record(mapped_tbl, (char *)&rec);
+		uint64_t rs1 = add_db_table_record(mapped_tbl, (char *)&rec);
 		printf("Record added %s to %" PRIu64 "\n", rec_uuid, rs1);
 
-		outrec = (record_t *)read_db_record(mapped_tbl, rs1);
+		outrec = (record_t *)read_db_table_record(mapped_tbl, rs1);
 		bzero(&rec_uuid, sizeof(rec_uuid));
 		uuid_unparse_lower(outrec->record_id, rec_uuid);
 
 		uuid_generate_random(rec.record_id);
 		bzero(&rec.record_msg, sizeof(rec.record_msg));
 		strcpy(rec.record_msg, "goodbye world");
-		uint64_t rs2 = add_db_record(mapped_tbl, (char *)&rec);
+		uint64_t rs2 = add_db_table_record(mapped_tbl, (char *)&rec);
 		bzero(&rec_uuid, sizeof(rec_uuid));
 		uuid_unparse_lower(rec.record_id, rec_uuid);
 		printf("Record added %s to %" PRIu64 "\n", rec_uuid, rs2);
@@ -150,9 +149,9 @@ int main (int argc, char **argv) {
 		uuid_unparse_lower(outrec->record_id, rec_uuid);
 		printf("Message: %s (%s)\n", outrec->record_msg, rec_uuid);
 
-		outrec = (record_t *)read_db_record(mapped_tbl, rs2);
+		outrec = (record_t *)read_db_table_record(mapped_tbl, rs2);
 
-		delete_db_record(mapped_tbl, rs1, (char *)&rec);
+		delete_db_table_record(mapped_tbl, rs1, (char *)&rec);
 
 		bzero(&rec_uuid, sizeof(rec_uuid));
 		uuid_unparse_lower(outrec->record_id, rec_uuid);
@@ -164,6 +163,7 @@ int main (int argc, char **argv) {
 
 		close_dd_table(mapped_tbl);
 	}
+	*/
 
 	release_data_dictionary(data_dictionary);
 

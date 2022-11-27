@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "utils.h"
+#include "data_dictionary.h"
 
 //#define IDX_ORDER 64
 //#define IDX_ORDER 21
@@ -88,5 +89,7 @@ void write_file_from_index(index_t *idx);
 void print_tree(index_t *idx, idxnode_t *idxnode, int *counter);
 void print_tree_totals(index_t *idx, idxnode_t *idxnode, int *counter);
 void print_index_scan_lookup(index_t *idx, char *key);
+
+uint64_t dbidx_num_child_records(db_idxnode_t *);
 
 #endif /* INDEX_TOOLS_H_ */

@@ -312,7 +312,7 @@ int close_dd_table(db_table_t *mapped_table) {
 	return rv;
 }
 
-uint64_t add_db_record(db_table_t *tbl, char *record) {
+uint64_t add_db_table_record(db_table_t *tbl, char *record) {
 	char *sr = 0;
 	uint64_t slot = UINT64_MAX;
 	uint64_t cs = tbl->free_record_slot;
@@ -335,7 +335,7 @@ uint64_t add_db_record(db_table_t *tbl, char *record) {
 	return slot;
 }
 
-bool delete_db_record(db_table_t *tbl, uint64_t slot, char *deleted_record) {
+bool delete_db_table_record(db_table_t *tbl, uint64_t slot, char *deleted_record) {
 	bool rv = false;
 	char *target = NULL;
 
@@ -354,7 +354,7 @@ bool delete_db_record(db_table_t *tbl, uint64_t slot, char *deleted_record) {
 	return rv;
 }
 
-char *read_db_record(db_table_t *tbl, uint64_t slot) {
+char *read_db_table_record(db_table_t *tbl, uint64_t slot) {
 	char *record = NULL;
 	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX)
 		record = (char *)(tbl->data + (slot * tbl->schema->record_size));

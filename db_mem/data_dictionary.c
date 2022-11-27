@@ -159,6 +159,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 		//printf("Creating schema and table for %s\n", attr->string);
 		uint8_t num_fields = cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(attr, "fields"));
 		dd_table_schema_t *schema = init_dd_schema(attr->string, num_fields);
+		dd_table_schema_t *created_schema = NULL;
 		uint64_t table_size = 0;
 		cJSON *c = NULL;
 
@@ -199,7 +200,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 					fprintf(stderr, "field %s is defined on table %s, but does not have its own definition\n", table_field, attr->string);
 					continue;
 				}
-				add_dd_schema_field(schema, field);
+				add_dd_table_schema_field(schema, field);
 			}
 		}
 		/*
@@ -216,21 +217,73 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 		 * 	 ...
 		 * 	 unique index = order id, created datetime
 		 */
-		add_dd_schema(dd, schema);
+		add_dd_schema(dd, schema, &created_schema);
 		free(schema);
 		schema = NULL;
-		for(uint32_t i = 0; i<(*dd)->num_schemas; i++) {
-			schema = &(*dd)->schemas[i];
-			if ( strcmp(schema->schema_name, attr->string) == 0 )
-				break;
-		}
 
-		if ( schema != NULL ) {
-			db_table_t *tbl = init_dd_table(attr->string, schema, table_size);
-			//printf("Creating table %s with schema %s\n", tbl->table_name, schema->schema_name);
-			add_dd_table(dd, tbl);
-			free(tbl);
+		db_table_t *tbl = init_dd_table(attr->string, created_schema, table_size);
+		cJSON *indexes = cJSON_GetObjectItemCaseSensitive(attr, "indexes");
+		uint8_t num_indexes = 0;
+		cJSON *index = indexes->child;
+		while ( index != NULL ) {
+			num_indexes++;
+			index = index->next;
 		}
+		tbl->num_indexes = num_indexes;
+		tbl->indexes = calloc(num_indexes, sizeof(db_index_t));
+		index = indexes->child;
+		for(uint8_t i = 0; i < num_indexes && index != NULL; i++) {
+			uint8_t num_fields = cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(index, "fields"));
+			if ( num_fields == 0 ) {
+				fprintf(stderr, "No fields found for index %s\n", index->string);
+				free(tbl);
+				release_data_dictionary(dd);
+				return NULL;
+			}
+			db_index_schema_t *idxschema = malloc(sizeof(db_index_schema_t));
+			bzero(idxschema, sizeof(db_index_schema_t));
+
+			strcpy(tbl->indexes[i].index_name, index->string);
+			idxschema->table = tbl;
+
+			idxschema->index_order = 5;
+			cJSON *idxattr = cJSON_GetObjectItemCaseSensitive(index, "order");
+			if ( idxattr != NULL && cJSON_IsNumber(idxattr) ) {
+				double ord = cJSON_GetNumberValue(idxattr);
+				if ( ord > 0 && ord < UINT8_MAX )
+					idxschema->index_order = (uint8_t)ord;
+			}
+			idxattr = cJSON_GetObjectItemCaseSensitive(index, "unique");
+			if ( idxattr != NULL && cJSON_IsBool(idxattr) && cJSON_IsTrue(idxattr))
+				idxschema->is_unique = true;
+			else
+				idxschema->is_unique = false;
+
+			idxschema->fields_sz = num_fields;
+			idxschema->fields = calloc(num_fields, sizeof(dd_datafield_t *));
+
+			idxattr = cJSON_GetObjectItemCaseSensitive(index, "fields");
+			dd_datafield_t *idxfield = NULL;
+			for(uint8_t idxfieldpos = 0; idxfieldpos < num_fields; idxfieldpos++) {
+				char *idxfieldname = cJSON_GetStringValue(cJSON_GetArrayItem(idxattr, idxfieldpos));
+				if ( (idxfield = find_dd_field(dd, idxfieldname)) != NULL ) {
+					idxschema->fields[idxfieldpos] = idxfield;
+				} else {
+					fprintf(stderr, "Error locating index field member %s on table %s\n", idxfieldname, tbl->table_name);
+					free(tbl);
+					release_data_dictionary(dd);
+					return NULL;
+				}
+				idxattr = idxattr->next;
+			}
+
+			tbl->indexes[i].idx_schema = idxschema;
+			tbl->indexes[i].root_node.parent = &tbl->indexes[i].root_node;
+			tbl->indexes[i].root_node.is_leaf = true;
+			index = index->next;
+		}
+		add_dd_table(dd, tbl);
+		free(tbl);
 
 		attr = attr->next;
 	}
@@ -239,10 +292,21 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 }
 
 void release_data_dictionary(data_dictionary_t **dd) {
-	for(uint32_t i = 0; i < (*dd)->num_tables; i++) {
-		db_table_t *t = &(*dd)->tables[i];
+	for(uint32_t tblcnt = 0; tblcnt < (*dd)->num_tables; tblcnt++) {
+		db_table_t *t = &(*dd)->tables[tblcnt];
 		dd_table_schema_t *s = t->schema;
-		free(s->fields);
+		if ( t->indexes != NULL ) {
+			for(uint8_t idxcnt = 0; idxcnt < t->num_indexes; idxcnt++) {
+				db_index_schema_t *idx = t->indexes[idxcnt].idx_schema;
+				if ( idx->fields != NULL)
+					free(idx->fields);
+				if ( idx != NULL )
+					free(idx);
+			}
+			free(t->indexes);
+		}
+		if ( s->fields != NULL )
+			free(s->fields);
 	}
 	free((*dd)->tables);
 	(*dd)->num_tables = 0;
@@ -352,7 +416,6 @@ int add_dd_table(data_dictionary_t **dd, db_table_t *table) {
 		if(strcmp((*dd)->tables[i].table_name, table->table_name) == 0) // prevents a duplicate entry
 			return 0;
 
-	//(*dd)->tables = realloc((*dd)->tables, sizeof(dd_table_t) * ((*dd)->num_tables + 1));
 	if ( (*dd)->num_tables >= (*dd)->num_alloc_tables )
 		return 0;
 
@@ -366,27 +429,26 @@ int add_dd_field(data_dictionary_t **dd, dd_datafield_t *field) {
 		if(strcmp((*dd)->fields[i].field_name, field->field_name) == 0) // prevents a duplicate entry
 			return 0;
 
-	//(*dd)->fields = realloc((*dd)->fields, sizeof(dd_datafield_t) * ((*dd)->num_fields + 1));
 	if ( (*dd)->num_fields >= (*dd)->num_alloc_fields )
 		return 0;
 
 	memcpy((*dd)->fields + (*dd)->num_fields, field, sizeof(dd_datafield_t));
-	//memcpy(((*dd)->fields + (*dd)->num_fields), field, sizeof(dd_datafield_t));
 	(*dd)->num_fields++;
 
 	return 1;
 }
 
-int add_dd_schema(data_dictionary_t **dd, dd_table_schema_t *schema) {
+int add_dd_schema(data_dictionary_t **dd, dd_table_schema_t *schema, dd_table_schema_t **created_schema) {
 	for(uint32_t i = 0; i < (*dd)->num_schemas; i++)
 		if(strcmp((*dd)->schemas[i].schema_name, schema->schema_name) == 0) // prevents a duplicate entry
 			return 0;
 
-	//(*dd)->schemas = realloc((*dd)->schemas, sizeof(dd_schema_t) * ((*dd)->num_schemas + 1));
 	if ( (*dd)->num_schemas >= (*dd)->num_alloc_schemas )
 		return 0;
 
 	memcpy((*dd)->schemas + (*dd)->num_schemas, schema, sizeof(dd_table_schema_t));
+	if ( created_schema != NULL )
+		*created_schema = ((*dd)->schemas + (*dd)->num_schemas);
 	(*dd)->num_schemas++;
 
 	return 1;
@@ -435,7 +497,7 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 	return size;
 }
 
-int add_dd_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
+int add_dd_table_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
 	if ( s->field_count + 1 > s->fields_sz ) {
 		s->fields_sz++;
 		s->fields = realloc(s->fields, sizeof(dd_datafield_t *) * s->fields_sz);
@@ -445,6 +507,27 @@ int add_dd_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
 	(s->field_count)++;
 	s->record_size += f->fieldsz;
 	return 1;
+}
+
+db_table_t *find_dd_table(data_dictionary_t **dd, const char *tbl_name) {
+	for(uint32_t i = 0; i<(*dd)->num_tables; i++)
+		if ( strcmp((*dd)->tables[i].table_name, tbl_name) == 0 )
+			return &(*dd)->tables[i];
+	return NULL;
+}
+
+dd_table_schema_t *find_dd_schema(data_dictionary_t **dd, const char *schema_name) {
+	for(uint32_t i = 0; i<(*dd)->num_schemas; i++)
+		if ( strcmp((*dd)->schemas[i].schema_name, schema_name) == 0 )
+			return &(*dd)->schemas[i];
+	return NULL;
+}
+
+dd_datafield_t *find_dd_field(data_dictionary_t **dd, const char *field_name) {
+	for(uint32_t i = 0; i<(*dd)->num_fields; i++)
+		if ( strcmp((*dd)->fields[i].field_name, field_name) == 0 )
+			return &(*dd)->fields[i];
+	return NULL;
 }
 
 int i8_compare(char *a, char *b) {

@@ -122,3 +122,33 @@ void write_record_numbers_from_index(index_t *idx) {
 	free(idxfile);
 	free(buffer);
 }
+
+uint64_t add_db_record(db_table_t *tbl, char *record) {
+	uint64_t rv = add_db_table_record(tbl, record);
+	return rv;
+}
+
+bool delete_db_record(db_table_t *tbl, char *record, char *deleted_record) {
+	if ( tbl == NULL )
+		return false;
+	if ( record == NULL )
+		return false;
+
+	bool rv = delete_db_table_record(tbl, 0, deleted_record);
+	return rv;
+}
+
+char * read_db_record(db_table_t *tbl, uint64_t slot) {
+	char *record = read_db_table_record(tbl, slot);
+	return record;
+}
+
+/*
+char * find_db_record(db_table_t *tbl, char *record, char *index_name) {
+	char *rv = NULL;
+	tbl = NULL;
+	record = NULL;
+	index_name = NULL;
+	return rv;
+}
+*/

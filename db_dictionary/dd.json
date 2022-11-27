@@ -50,6 +50,7 @@
 			"indexes": {
 				"subscription_id_idx_uq": {
 					"unique": true,
+					"order": 15,
 					"fields": ["subscription_id"]
 				},
 				"customer_id_idx": {
