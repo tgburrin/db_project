@@ -37,7 +37,7 @@ typedef struct DDTableSchema {
 	uint8_t field_count;
 	uint16_t record_size;
 	uint8_t fields_sz;  /* this is the size of the array below */
-	dd_datafield_t *fields;
+	dd_datafield_t **fields;
 } dd_table_schema_t;
 
 typedef struct DDIndexSchema {
@@ -81,7 +81,7 @@ typedef struct DbIndexNode {
 	db_idxnode_t *next;
 	db_idxnode_t *prev;
 
-	char **children;
+	char **children;  /* points to either nodes or keys */
 } db_idxnode_t;
 
 typedef struct DbIndexKey {

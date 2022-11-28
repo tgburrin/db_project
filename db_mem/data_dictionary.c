@@ -268,6 +268,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				char *idxfieldname = cJSON_GetStringValue(cJSON_GetArrayItem(idxattr, idxfieldpos));
 				if ( (idxfield = find_dd_field(dd, idxfieldname)) != NULL ) {
 					idxschema->fields[idxfieldpos] = idxfield;
+					idxschema->record_size += idxfield->fieldsz;
 				} else {
 					fprintf(stderr, "Error locating index field member %s on table %s\n", idxfieldname, tbl->table_name);
 					free(tbl);
@@ -349,7 +350,7 @@ dd_table_schema_t *init_dd_schema(char *schema_name, uint8_t num_fields) {
 	s->fields_sz = num_fields;
 	s->fields = NULL;
 	if ( num_fields > 0 )
-		s->fields = calloc(sizeof(dd_datafield_t), num_fields);
+		s->fields = calloc(sizeof(dd_datafield_t *), num_fields);
 	return s;
 }
 
@@ -447,6 +448,7 @@ int add_dd_schema(data_dictionary_t **dd, dd_table_schema_t *schema, dd_table_sc
 		return 0;
 
 	memcpy((*dd)->schemas + (*dd)->num_schemas, schema, sizeof(dd_table_schema_t));
+
 	if ( created_schema != NULL )
 		*created_schema = ((*dd)->schemas + (*dd)->num_schemas);
 	(*dd)->num_schemas++;
@@ -503,7 +505,7 @@ int add_dd_table_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
 		s->fields = realloc(s->fields, sizeof(dd_datafield_t *) * s->fields_sz);
 	}
 
-	s->fields[s->field_count] = *f;
+	s->fields[s->field_count] =f;
 	(s->field_count)++;
 	s->record_size += f->fieldsz;
 	return 1;

@@ -23,6 +23,13 @@ uint64_t add_db_record(db_table_t *, char *);
 bool delete_db_record(db_table_t *, char *, char *);
 char * read_db_record(db_table_t *, uint64_t);
 
+bool set_table_field_value(dd_table_schema_t *, char *, char *);
+bool set_table_field_value_str(dd_table_schema_t *, char *, char *);
+bool set_table_field_value_timestamp(dd_table_schema_t *, char *, struct timespec *);
+bool set_table_field_value_bool(dd_table_schema_t *, char *, bool);
+bool set_table_field_value_uint(dd_table_schema_t *, char *, uint64_t);
+bool set_table_field_value_int(dd_table_schema_t *, char *, int64_t);
+
 /*
 void print_db_record(db_table_t *, uint64_t, char **);
 char * find_db_record(db_table_t *, char *, char *);

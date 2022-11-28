@@ -165,7 +165,6 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 	size_t metadatasize =
 			sizeof(db_table_t) +
 			sizeof(dd_table_schema_t) +
-			sizeof(dd_datafield_t**) +
 			sizeof(dd_datafield_t) * tablemeta->schema->field_count +
 			sizeof(uint64_t) * tablemeta->total_record_count * 2;
 
@@ -197,14 +196,12 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 
 	}
 
-	printf("File opened and mapped\n");
 	char *offset = dbfile;
 	mt = (db_table_t *)offset;
 	offset += sizeof(db_table_t);
 	mt->schema = (dd_table_schema_t *)offset;
 	offset += sizeof(dd_table_schema_t);
 
-	printf("Checking existing table details\n");
 	if ( mt->total_record_count == 0 ||
 		(mt->total_record_count == tablemeta->total_record_count && mt->schema->record_size == tablemeta->schema->record_size)) {
 		munmap(dbfile, fs);
@@ -215,19 +212,22 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 		dbfile = mmap(NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		offset = dbfile;
 		mt = (db_table_t *)offset;
-		printf("Reopened table %s (%p %ld)\n", mt->table_name, (void *)mt, sizeof(db_table_t));
+		//printf("Reopened table %s (%p %ld)\n", tablemeta->table_name, (void *)mt, sizeof(db_table_t));
 		offset += sizeof(db_table_t);
+
 		mt->schema = (dd_table_schema_t *)offset;
-		printf("\ttable has schema %s with %d fields\n",
-				mt->schema->schema_name, mt->schema->field_count);
 		offset += sizeof(dd_table_schema_t);
 
 		int field_count = tablemeta->schema->field_count;
 		if ( mt->schema->field_count > 0 )
 			field_count = mt->schema->field_count;
 
-		mt->schema->fields = (dd_datafield_t *)offset;
-		offset += sizeof(dd_datafield_t) * field_count;
+		/* this is ugly, but works for what it needs to do */
+		mt->schema->fields = (dd_datafield_t **)offset;
+		for(uint8_t i = 0; i < field_count; i++) {
+			mt->schema->fields[i] = (dd_datafield_t *)offset;
+			offset += sizeof(dd_datafield_t);
+		}
 
 		mt->used_slots = (uint64_t *)(offset);
 		if ( mt->total_record_count > 0 )
@@ -242,7 +242,6 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 			offset += sizeof(uint64_t) * tablemeta->total_record_count;
 
 		mt->data = (void *)(offset);
-		printf("finished mapping table sections (%ld vs %ld)\n", offset - dbfile, metadatasize);
 	} else if ( mt->total_record_count != tablemeta->total_record_count ||
 				mt->schema->record_size != tablemeta->schema->record_size) {
 		// remap event
@@ -259,15 +258,23 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 		mt->total_record_count = tablemeta->total_record_count;
 		mt->free_record_slot = tablemeta->total_record_count - 1;
 
-		dd_datafield_t *existing_fields = mt->schema->fields;
+		/* retain the file mapped set of fields */
+		char *field_ptr = (char *)mt->schema->fields;
+		/*
+		 * after this copy, the fields array no longer is properly pointed
+		 *
+		 */
 		memcpy(mt->schema, tablemeta->schema, sizeof(dd_table_schema_t));
-		mt->schema->fields = existing_fields;
-
-		for(int i=0; i < mt->schema->field_count; i++) {
-			dd_datafield_t *dst = &mt->schema->fields[i];
-			dd_datafield_t *src = &tablemeta->schema->fields[i];
+		mt->schema->fields = (dd_datafield_t **)field_ptr;
+		field_ptr += sizeof(dd_datafield_t *);
+		for(uint8_t i = 0; i < mt->schema->field_count; i++) {
+			mt->schema->fields[i] = (dd_datafield_t *)field_ptr;
+			dd_datafield_t *dst = mt->schema->fields[i];
+			dd_datafield_t *src = tablemeta->schema->fields[i];
 			memcpy(dst, src, sizeof(dd_datafield_t));
+			field_ptr += sizeof(dd_datafield_t);
 		}
+
 		for(uint64_t i = 0; i < mt->total_record_count; i++) {
 			mt->free_slots[mt->free_record_slot - i] = i;
 			mt->used_slots[i] = UINT64_MAX;
@@ -291,8 +298,6 @@ int close_dd_table(db_table_t *mapped_table) {
 	size_t fs = mapped_table->filesize;
 	size_t tnsz = sizeof(char) * strlen(mapped_table->table_name) + 5;
 
-	printf("Closing table %s\n", mapped_table->table_name);
-
 	char *tpth = NULL;
 	if ( (tpth = getenv("TABLE_DATA")) == NULL )
 		tpth = DEFAULT_BASE;
@@ -302,7 +307,6 @@ int close_dd_table(db_table_t *mapped_table) {
 	strcpy(tn, mapped_table->table_name);
 	strcat(tn, ".shm");
 
-	printf("Unmapping table\n");
 	munmap(mapped_table, fs);
 	close(fd);
 
@@ -317,21 +321,15 @@ uint64_t add_db_table_record(db_table_t *tbl, char *record) {
 	uint64_t slot = UINT64_MAX;
 	uint64_t cs = tbl->free_record_slot;
 
-	printf("Current free slot is %"PRIu64"\n", tbl->free_slots[cs]);
-
 	if ( cs < tbl->total_record_count ) {
 		slot = tbl->free_slots[cs];
 		sr = (char *)(tbl->data + (slot * tbl->schema->record_size));
-		printf("Moving %ld bytes in from %p to %p\n", (slot * tbl->schema->record_size), (void *)tbl->data, (void *)sr);
 		memcpy(sr, record, tbl->schema->record_size);
 
 		tbl->used_slots[slot] = cs;
 		tbl->free_slots[cs] = tbl->total_record_count;
 		tbl->free_record_slot = cs == 0 ? UINT64_MAX : cs - 1;
-		printf("Next free slot is %"PRIu64"\n", tbl->free_slots[tbl->free_record_slot]);
 	}
-	printf("Added to slot is %"PRIu64"\n", slot);
-
 	return slot;
 }
 

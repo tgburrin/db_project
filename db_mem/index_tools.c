@@ -747,3 +747,84 @@ uint64_t dbidx_num_child_records(db_idxnode_t *idxnode) {
 
 	return rv;
 }
+
+/*
+signed char dbidx_compare_key(db_index_schema_t *idx, db_indexkey_t *key_a, db_indexkey_t *key_b) {
+	signed char rv = 0;
+
+	for(uint8_t i = 0; i < idx->fields_sz; i++) {
+		dd_datafield_t *f = idx->fields[i];
+	}
+
+	// if the order ids aren't equal return immediately
+	if ( (rv = strcmp(a->subscription_id, b->subscription_id)) != 0 )
+		return rv;
+
+	// if either record id is a max value pointer ignore the comparison further
+	if ( a->record == UINT64_MAX || b->record == UINT64_MAX )
+		return rv;
+
+	if ( a->record == b->record )
+		return 0;
+	else if ( a->record < b->record )
+		return -1;
+	else
+		return 1;
+
+}
+*/
+/*
+int dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, char *find_rec, int *index) {
+	int rv = 0;
+	if ( idxnode->num_children == 0 )
+		return rv;
+
+	int i = idxnode->num_children / 2, cmp;
+
+	int lower = 0;
+	int upper = idxnode->num_children;
+
+	for ( ;; ) {
+		if ( (upper - lower) <= 1 ) {
+			while ( i >= 0 && i < idxnode->num_children && (cmp = (*idx->compare_key)(idxnode->children[i], find_rec)) > 0 )
+				i--;
+			while ( i >= 0 && i < idxnode->num_children && (cmp = (*idx->compare_key)(idxnode->children[i], find_rec)) < 0 )
+				i++;
+			break;
+		} else if ( (*idx->compare_key)(idxnode->children[i], find_rec) < 0 ) {
+			lower = i;
+		} else {
+			upper = i;
+		}
+
+		i = lower + ((upper - lower) / 2);
+	}
+
+	if ( i < 0 ) {
+		rv = -1;
+		*index = 0;
+	} else if ( i >= idxnode->num_children ) {
+		rv = 1;
+		*index  = idxnode->num_children - 1;
+	} else {
+		rv = 0;
+		*index = i;
+	}
+	return rv;
+}
+
+db_idxnode_t *dbidx_find_node(db_index_schema_t *idx, db_idxnode_t *idxnode, char *find_rec) {
+	if ( idxnode->is_leaf )
+			return idxnode;
+
+	int index = 0, found;
+	db_idxnode_t *current = idxnode;
+	while ( (found = find_node_index(idx, current, find_rec, &index)) >= 1)
+		if ( (idxnode_t *)current->next == NULL )
+			break;
+		else
+			current = current->next;
+
+	return find_node(idx, ((db_indexkey_t *)(current->children[index]))->childnode, find_rec);
+}
+*/

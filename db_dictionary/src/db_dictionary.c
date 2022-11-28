@@ -78,7 +78,7 @@ int main (int argc, char **argv) {
 		dd_table_schema_t *s = &(*data_dictionary)->schemas[i];
 		printf("%s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
 		for(int k = 0; k < s->field_count; k++) {
-			dd_datafield_t *f = &s->fields[k];
+			dd_datafield_t *f = s->fields[k];
 			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
 			if ( f->fieldtype == STR )
 				printf(" %d", f->fieldsz);
@@ -94,7 +94,7 @@ int main (int argc, char **argv) {
 		printf("%s\n", t->table_name);
 		printf("\tschema %s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
 		for(int k = 0; k < s->field_count; k++) {
-			dd_datafield_t *f = &s->fields[k];
+			dd_datafield_t *f = s->fields[k];
 			printf("\t\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
 			if ( f->fieldtype == STR )
 				printf(" %d", f->fieldsz);
@@ -110,7 +110,6 @@ int main (int argc, char **argv) {
 		}
 	}
 
-	/*
 	db_table_t *tbl = find_dd_table(data_dictionary, "test_table");
 	if ( tbl != NULL ) {
 		db_table_t *mapped_tbl = NULL;
@@ -163,7 +162,6 @@ int main (int argc, char **argv) {
 
 		close_dd_table(mapped_tbl);
 	}
-	*/
 
 	release_data_dictionary(data_dictionary);
 
