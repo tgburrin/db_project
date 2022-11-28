@@ -13,6 +13,9 @@
 #include <cjson/cJSON.h>
 #include "utils.h"
 
+typedef uint8_t index_order_t;
+#define INDEX_ORDER_MAX UINT8_MAX
+
 /* empty typedef definitions for early use, these will be redefined later */
 typedef struct DDDataField dd_data_field_t;
 typedef struct DDTableSchema dd_table_schema_t;
@@ -42,10 +45,10 @@ typedef struct DDTableSchema {
 
 typedef struct DDIndexSchema {
 	db_table_t *table;
-	uint8_t index_order;
-	uint16_t record_size;
+	index_order_t index_order; /* this must be the same as num_children below in index nodes and caps the number to 255 */
+	uint16_t record_size; /* this is the cumulative size, in bytes, of the fields e.g. str(20) + uint64_t = 28 */
 	bool is_unique;
-	uint8_t fields_sz;  /* this is the size of the array below */
+	uint8_t fields_sz;  /* this is both the number of fields in the index and the size of the array below */
 	dd_datafield_t **fields;
 } db_index_schema_t;
 
@@ -75,7 +78,7 @@ typedef struct DbTable {
 
 typedef struct DbIndexNode {
 	bool is_leaf;
-	uint16_t num_children;
+	index_order_t num_children;
 
 	db_idxnode_t *parent;
 	db_idxnode_t *next;
@@ -87,7 +90,8 @@ typedef struct DbIndexNode {
 typedef struct DbIndexKey {
 	db_idxnode_t *childnode;
 	uint64_t record;
-	char *data;
+	uint16_t keysz;
+	char **data;
 } db_indexkey_t;
 
 typedef struct DbIndex {
@@ -128,19 +132,25 @@ int add_dd_field(data_dictionary_t **, dd_datafield_t *);
 uint8_t get_dd_field_size(datatype_t, uint8_t);
 int add_dd_table_schema_field(dd_table_schema_t *, dd_datafield_t *);
 
-db_table_t *find_dd_table(data_dictionary_t **, const char *);
+db_table_t *find_db_table(data_dictionary_t **, const char *);
+db_index_t *find_db_index(db_table_t *, const char *);
+
 dd_table_schema_t *find_dd_schema(data_dictionary_t **, const char *);
+db_index_schema_t *find_dd_idx_schema(db_table_t *, const char *);
 dd_datafield_t *find_dd_field(data_dictionary_t **, const char *);
 
-int str_compare (char *, char *);
-int i8_compare (char *, char *);
-int ui8_compare (char *, char *);
-int i16_compare (char *, char *);
-int ui16_compare (char *, char *);
-int i32_compare (char *, char *);
-int ui32_compare (char *, char *);
-int i64_compare (char *, char *);
-int ui64_compare (char *, char *);
-int ts_compare (char *, char *);
+signed char str_compare (const char *, const char *);
+signed char str_compare_sz (const char *, const char *, size_t);
+
+signed char i64_compare (int64_t *, int64_t *);
+signed char ui64_compare (uint64_t *, uint64_t *);
+signed char i32_compare (int32_t *, int32_t *);
+signed char ui32_compare (uint32_t *, uint32_t *);
+signed char i16_compare (int16_t *, int16_t *);
+signed char ui16_compare (uint16_t *, uint16_t *);
+signed char i8_compare (int8_t *, int8_t *);
+signed char ui8_compare (uint8_t *, uint8_t *);
+
+signed char ts_compare (struct timespec *, struct timespec *);
 
 #endif /* DATA_DICTIONARY_H_ */

@@ -20,13 +20,15 @@
 #include <string.h>
 #include <strings.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #include <cjson/cJSON.h>
 
 #include <table_tools.h>
+#include <index_tools.h>
 #include <data_dictionary.h>
-
-#define SUBSCRIPTION_ID_LENTH 18
-#define CUSTOMER_ID_LENTH 18
 
 typedef struct Records {
 	uuid_t record_id;
@@ -36,14 +38,17 @@ typedef struct Records {
 } record_t;
 
 int main (int argc, char **argv) {
-	int errs = 0;
+	int errs = 0, ofd = 0;
 	char c;
-	char *dd_filename = NULL;
+	char *dd_in_filename = NULL, *dd_out_filename = NULL;
 
-	while ((c = getopt(argc, argv, "d:")) != -1) {
+	while ((c = getopt(argc, argv, "d:o:")) != -1) {
 		switch(c) {
 		case 'd': ;
-			dd_filename = optarg;
+			dd_in_filename = optarg;
+			break;
+		case 'o': ;
+			dd_out_filename = optarg;
 			break;
 		case ':': ;
 			fprintf(stderr, "Option -%c requires an option\n", optopt);
@@ -57,14 +62,24 @@ int main (int argc, char **argv) {
 	if ( errs > 0 )
 		exit(EXIT_FAILURE);
 
-	if ( dd_filename == NULL ) {
-		fprintf(stderr, "Data dictionary filename (-d) is required\n");
+	if ( dd_in_filename == NULL ) {
+		fprintf(stderr, "Data dictionary in filename (-d) is required\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if ( dd_out_filename == NULL ) {
+		fprintf(stderr, "Data dictionary out filename (-o) is required\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if ( (ofd = open(dd_out_filename, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR)) < 0 ) {
+		fprintf(stderr, "Cannot open output filename %s: %s\n", dd_out_filename, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
 	data_dictionary_t **data_dictionary = NULL;
-	if ( (data_dictionary = build_dd_from_json(dd_filename)) == NULL ) {
-		fprintf(stderr, "Error while building data dictionary from file %s\n", dd_filename);
+	if ( (data_dictionary = build_dd_from_json(dd_in_filename)) == NULL ) {
+		fprintf(stderr, "Error while building data dictionary from file %s\n", dd_in_filename);
 		exit(EXIT_FAILURE);
 	}
 
@@ -109,60 +124,13 @@ int main (int argc, char **argv) {
 			printf("\n");
 		}
 	}
+	write(ofd, &(*data_dictionary)->num_fields, sizeof(uint32_t));
+	write(ofd, &(*data_dictionary)->num_schemas, sizeof(uint32_t));
+	write(ofd, &(*data_dictionary)->num_tables, sizeof(uint32_t));
+	for(uint32_t i = 0; i < (*data_dictionary)->num_fields; i++)
+		write(ofd, &(*data_dictionary)->fields[i], sizeof(dd_datafield_t));
 
-	db_table_t *tbl = find_dd_table(data_dictionary, "test_table");
-	if ( tbl != NULL ) {
-		db_table_t *mapped_tbl = NULL;
-		char rec_uuid[37];
-		bzero(&rec_uuid, sizeof(rec_uuid));
-
-		printf("Running test with table %s\n", tbl->table_name);
-		record_t rec;
-		printf("Record is %ld bytes in size\n", sizeof(record_t));
-		uuid_generate_random(rec.record_id);
-		uuid_unparse_lower(rec.record_id, rec_uuid);
-
-		clock_gettime(CLOCK_REALTIME, &rec.created_dt);
-		strcpy(rec.record_msg, "hello world");
-		rec.record_counter = 10;
-
-		record_t *outrec = NULL;
-
-		open_dd_table(tbl, &mapped_tbl);
-		uint64_t rs1 = add_db_table_record(mapped_tbl, (char *)&rec);
-		printf("Record added %s to %" PRIu64 "\n", rec_uuid, rs1);
-
-		outrec = (record_t *)read_db_table_record(mapped_tbl, rs1);
-		bzero(&rec_uuid, sizeof(rec_uuid));
-		uuid_unparse_lower(outrec->record_id, rec_uuid);
-
-		uuid_generate_random(rec.record_id);
-		bzero(&rec.record_msg, sizeof(rec.record_msg));
-		strcpy(rec.record_msg, "goodbye world");
-		uint64_t rs2 = add_db_table_record(mapped_tbl, (char *)&rec);
-		bzero(&rec_uuid, sizeof(rec_uuid));
-		uuid_unparse_lower(rec.record_id, rec_uuid);
-		printf("Record added %s to %" PRIu64 "\n", rec_uuid, rs2);
-
-		bzero(&rec_uuid, sizeof(rec_uuid));
-		uuid_unparse_lower(outrec->record_id, rec_uuid);
-		printf("Message: %s (%s)\n", outrec->record_msg, rec_uuid);
-
-		outrec = (record_t *)read_db_table_record(mapped_tbl, rs2);
-
-		delete_db_table_record(mapped_tbl, rs1, (char *)&rec);
-
-		bzero(&rec_uuid, sizeof(rec_uuid));
-		uuid_unparse_lower(outrec->record_id, rec_uuid);
-		printf("Message: %s (%s)\n", outrec->record_msg, rec_uuid);
-
-		bzero(&rec_uuid, sizeof(rec_uuid));
-		uuid_unparse_lower(rec.record_id, rec_uuid);
-		printf("Deleted: %s (%s)\n", rec.record_msg, rec_uuid);
-
-		close_dd_table(mapped_tbl);
-	}
-
+	close(ofd);
 	release_data_dictionary(data_dictionary);
 
 	printf("exiting\n");

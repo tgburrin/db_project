@@ -90,9 +90,13 @@ void print_tree(index_t *idx, idxnode_t *idxnode, int *counter);
 void print_tree_totals(index_t *idx, idxnode_t *idxnode, int *counter);
 void print_index_scan_lookup(index_t *idx, char *key);
 
-signed char dbidx_compare_key(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
+db_indexkey_t *dbidx_allocate_key(db_index_schema_t *);
+char *dbidx_allocate_key_data(db_index_schema_t *);
+bool dbidx_set_key_data_field_value(db_index_schema_t *, char *, char *, char *);
+signed char dbidx_compare_keys(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
+
 uint64_t dbidx_num_child_records(db_idxnode_t *);
-int dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, char *, int *);
+signed char dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, uint8_t *);
 db_idxnode_t *dbidx_find_node(db_index_schema_t *, db_idxnode_t *, char *);
 
 #endif /* INDEX_TOOLS_H_ */

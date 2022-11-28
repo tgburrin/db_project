@@ -56,6 +56,10 @@
 				"customer_id_idx": {
 					"unique": false,
 					"fields": ["customer_id"]
+				},
+				"project_sub_id_idx": {
+					"unique": false,
+					"fields": ["project_id", "subscription_id"]
 				}
 			}
 		},

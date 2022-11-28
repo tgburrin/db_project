@@ -359,3 +359,17 @@ char *read_db_table_record(db_table_t *tbl, uint64_t slot) {
 
 	return record;
 }
+
+char *new_db_table_record(dd_table_schema_t *tbl) {
+	char *record = NULL;
+	record = malloc(tbl->record_size);
+	bzero(record, tbl->record_size);
+	return record;
+}
+
+void release_table_record(dd_table_schema_t *tbl, char *record) {
+	if (record != NULL) {
+		memset(record, 0, tbl->record_size);
+		free(record);
+	}
+}

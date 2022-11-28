@@ -58,5 +58,7 @@ int close_dd_table(db_table_t *mapped_table);
 uint64_t add_db_table_record(db_table_t *, char *);
 bool delete_db_table_record(db_table_t *, uint64_t, char *);
 char * read_db_table_record(db_table_t *, uint64_t);
+char * new_db_table_record(dd_table_schema_t *);
+void release_table_record(dd_table_schema_t *, char *);
 
 #endif /* TABLE_TOOLS_H_ */

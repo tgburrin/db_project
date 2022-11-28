@@ -737,6 +737,106 @@ void print_index_scan_lookup(index_t *idx, char *key) {
 
 /* new data dictionary functions */
 
+db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
+	db_indexkey_t *rv = NULL;
+
+	if ( idx == NULL )
+		return rv;
+
+	/* This is kind of an unsafe strategy, but it should work */
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz;
+	rv = malloc(keysz);
+	bzero(rv, keysz);
+	rv->keysz = keysz;
+	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
+	return rv;
+}
+
+char *dbidx_allocate_key_data(db_index_schema_t *idx) {
+	char *rv = NULL;
+
+	if ( idx == NULL )
+		return rv;
+	rv = malloc(idx->record_size);
+	bzero(rv, idx->record_size);
+	return rv;
+}
+
+bool dbidx_set_key_data_field_value(db_index_schema_t *idx, char *field_name, char *data, char *value) {
+	size_t offset = 0;
+	dd_datafield_t *f = NULL;
+	for(uint8_t i = 0; i < idx->fields_sz; i++) {
+		f = idx->fields[i];
+
+		if ( strcmp(f->field_name, field_name) == 0 ) {
+			memcpy(data + offset, value, f->fieldsz);
+			return true;
+		} else {
+			offset += f->fieldsz;
+		}
+	}
+	return false;
+}
+
+signed char dbidx_compare_keys(db_index_schema_t *idx, db_indexkey_t *keya, db_indexkey_t *keyb) {
+	signed char rv = 0;
+	bool a, b;
+
+	if ( idx == NULL || keya == NULL || keyb == NULL )
+		return -2;
+
+	for(uint8_t i = 0; i < idx->fields_sz; i++) {
+		switch (idx->fields[i]->fieldtype) {
+		case STR:
+			rv = str_compare_sz(keya->data[i], keyb->data[i], idx->fields[i]->fieldsz);
+			break;
+		case TIMESTAMP:
+			rv = ts_compare((struct timespec *)keya->data[i], (struct timespec *)keyb->data[i]);
+			break;
+		case BOOL:
+			a = *(bool *)keya->data[i];
+			b = *(bool *)keyb->data[i];
+			rv = a == b ? 0 : a > b ? 1 : -1;
+			break;
+		case UUID:
+			break;
+		case UI64:
+			rv = ui64_compare((uint64_t *)keya->data[i], (uint64_t *)keyb->data[i]);
+			break;
+		case I64:
+			rv = i64_compare((int64_t *)keya->data[i], (int64_t *)keyb->data[i]);
+			break;
+		case UI32:
+			rv = ui32_compare((uint32_t *)keya->data[i], (uint32_t *)keyb->data[i]);
+			break;
+		case I32:
+			rv = i32_compare((int32_t *)keya->data[i], (int32_t *)keyb->data[i]);
+			break;
+		case UI16:
+			rv = ui16_compare((uint16_t *)keya->data[i], (uint16_t *)keyb->data[i]);
+			break;
+		case I16:
+			rv = i16_compare((int16_t *)keya->data[i], (int16_t *)keyb->data[i]);
+			break;
+		case UI8:
+			rv = ui8_compare((uint8_t *)keya->data[i], (uint8_t *)keyb->data[i]);
+			break;
+		case I8:
+			rv = i8_compare((int8_t *)keya->data[i], (int8_t *)keyb->data[i]);
+			break;
+		default:
+			rv = -2;
+		}
+		if ( rv != 0 )
+			break;
+	}
+
+	if ( rv == 0 && keya->record < UINT64_MAX && keyb->record < UINT64_MAX )
+		rv = keya->record == keyb->record ? 0 : keya->record > keyb->record ? 1 : -1;
+
+	return rv;
+}
+
 uint64_t dbidx_num_child_records(db_idxnode_t *idxnode) {
 	if ( idxnode->is_leaf )
 		return (uint64_t)idxnode->num_children;
@@ -773,25 +873,40 @@ signed char dbidx_compare_key(db_index_schema_t *idx, db_indexkey_t *key_a, db_i
 
 }
 */
-/*
-int dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, char *find_rec, int *index) {
-	int rv = 0;
+signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
+	signed char rv = 0;
 	if ( idxnode->num_children == 0 )
 		return rv;
 
-	int i = idxnode->num_children / 2, cmp;
+	signed char i = idxnode->num_children / 2;
 
-	int lower = 0;
-	int upper = idxnode->num_children;
+	index_order_t lower = 0;
+	index_order_t upper = idxnode->num_children;
 
 	for ( ;; ) {
+		/*
+		 * this code continually takes the list of keys and divides it in half to check if the candidate key is greater or
+		 * smaller than the midpoint, for example:
+		 * find rec == 8
+		 * array is [3, 4, 6, 7, 9, 11]
+		 * lower = position 0 (value 3)
+		 * upper = position 5 (value 11)
+		 * 5 - 0 / 2 = 2 (position 2 is a value of 6)
+		 * 8 > 6 so the lower bound is moved from 0 -> 2
+		 * 2 + ((5 - 2) / 2) = 2 + 1 = position 3 value of 7 which is less than 8
+		 * 3 + ((5 - 3) / 2) = 2 + 2 = position 4 value of 9 which is greater than 8
+		 *   - the the upper bound is now set to 4
+		 * 3 + ((4 - 3) / 2)) = 3 + 0 = position 3 and 4 - 3 is now <= 1
+		 *   - we enter the two loops to be just less than position 4 (value of 9)
+		 */
+
 		if ( (upper - lower) <= 1 ) {
-			while ( i >= 0 && i < idxnode->num_children && (cmp = (*idx->compare_key)(idxnode->children[i], find_rec)) > 0 )
+			while ( dbidx_compare_keys(idx, (db_indexkey_t *)idxnode->children[i], find_rec) > 0 )
 				i--;
-			while ( i >= 0 && i < idxnode->num_children && (cmp = (*idx->compare_key)(idxnode->children[i], find_rec)) < 0 )
+			while ( dbidx_compare_keys(idx, (db_indexkey_t *)idxnode->children[i], find_rec) < 0 )
 				i++;
 			break;
-		} else if ( (*idx->compare_key)(idxnode->children[i], find_rec) < 0 ) {
+		} else if ( dbidx_compare_keys(idx, (db_indexkey_t *)idxnode->children[i], find_rec) < 0 ) {
 			lower = i;
 		} else {
 			upper = i;
@@ -810,9 +925,10 @@ int dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, char *f
 		rv = 0;
 		*index = i;
 	}
+
 	return rv;
 }
-
+/*
 db_idxnode_t *dbidx_find_node(db_index_schema_t *idx, db_idxnode_t *idxnode, char *find_rec) {
 	if ( idxnode->is_leaf )
 			return idxnode;

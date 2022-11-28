@@ -250,7 +250,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 			cJSON *idxattr = cJSON_GetObjectItemCaseSensitive(index, "order");
 			if ( idxattr != NULL && cJSON_IsNumber(idxattr) ) {
 				double ord = cJSON_GetNumberValue(idxattr);
-				if ( ord > 0 && ord < UINT8_MAX )
+				if ( ord > 0 && ord < INDEX_ORDER_MAX )
 					idxschema->index_order = (uint8_t)ord;
 			}
 			idxattr = cJSON_GetObjectItemCaseSensitive(index, "unique");
@@ -266,6 +266,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 			dd_datafield_t *idxfield = NULL;
 			for(uint8_t idxfieldpos = 0; idxfieldpos < num_fields; idxfieldpos++) {
 				char *idxfieldname = cJSON_GetStringValue(cJSON_GetArrayItem(idxattr, idxfieldpos));
+				printf("Locating field for index member %s position %d\n", idxfieldname, idxfieldpos);
 				if ( (idxfield = find_dd_field(dd, idxfieldname)) != NULL ) {
 					idxschema->fields[idxfieldpos] = idxfield;
 					idxschema->record_size += idxfield->fieldsz;
@@ -275,7 +276,6 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 					release_data_dictionary(dd);
 					return NULL;
 				}
-				idxattr = idxattr->next;
 			}
 
 			tbl->indexes[i].idx_schema = idxschema;
@@ -511,10 +511,17 @@ int add_dd_table_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
 	return 1;
 }
 
-db_table_t *find_dd_table(data_dictionary_t **dd, const char *tbl_name) {
+db_table_t *find_db_table(data_dictionary_t **dd, const char *tbl_name) {
 	for(uint32_t i = 0; i<(*dd)->num_tables; i++)
 		if ( strcmp((*dd)->tables[i].table_name, tbl_name) == 0 )
 			return &(*dd)->tables[i];
+	return NULL;
+}
+
+db_index_t *find_db_index(db_table_t *tbl, const char *idx_name) {
+	for(uint32_t i = 0; i<tbl->num_indexes; i++)
+		if ( strcmp(tbl->indexes[i].index_name, idx_name) == 0 )
+			return &tbl->indexes[i];
 	return NULL;
 }
 
@@ -525,6 +532,13 @@ dd_table_schema_t *find_dd_schema(data_dictionary_t **dd, const char *schema_nam
 	return NULL;
 }
 
+db_index_schema_t *find_dd_idx_schema(db_table_t *tbl, const char *idx_name) {
+	for(uint32_t i = 0; i < tbl->num_indexes; i++)
+		if ( strcmp(tbl->indexes[i].index_name, idx_name) == 0 )
+			return tbl->indexes[i].idx_schema;
+	return NULL;
+}
+
 dd_datafield_t *find_dd_field(data_dictionary_t **dd, const char *field_name) {
 	for(uint32_t i = 0; i<(*dd)->num_fields; i++)
 		if ( strcmp((*dd)->fields[i].field_name, field_name) == 0 )
@@ -532,6 +546,49 @@ dd_datafield_t *find_dd_field(data_dictionary_t **dd, const char *field_name) {
 	return NULL;
 }
 
-int i8_compare(char *a, char *b) {
-	return *(int8_t *)a == *(int8_t *)b ? 0 : *(int8_t *)a > *(int8_t *)b ? 1 : -1;
+signed char str_compare_sz (const char *s1, const char *s2, size_t n) {
+	int i = strncmp(s1, s2, n);
+	return i == 0 ? i : i > 0 ? 1 : -1; // the int value could overflow a signec char
+}
+
+signed char str_compare (const char *s1, const char *s2) {
+	int i = strcmp(s1, s2);
+	return i == 0 ? i : i > 0 ? 1 : -1; // the int value could overflow a signec char
+}
+
+signed char i64_compare(int64_t *a, int64_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char ui64_compare(uint64_t *a, uint64_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char i32_compare(int32_t *a, int32_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char ui32_compare(uint32_t *a, uint32_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char i16_compare(int16_t *a, int16_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char ui16_compare(uint16_t *a, uint16_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char i8_compare(int8_t *a, int8_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+signed char ui8_compare(uint8_t *a, uint8_t *b) {
+	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+
+signed char ts_compare (struct timespec *ts1, struct timespec *ts2) {
+	if ( ts1->tv_sec > ts2->tv_sec )
+		return 1;
+	else if ( ts1->tv_sec < ts2->tv_sec )
+		return -1;
+	else if ( ts1->tv_nsec > ts2->tv_nsec )
+		return 1;
+	else if ( ts1->tv_nsec < ts2->tv_nsec )
+		return -1;
+	return 0;
 }
