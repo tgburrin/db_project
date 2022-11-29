@@ -45,7 +45,6 @@ typedef struct DDTableSchema {
 } dd_table_schema_t;
 
 typedef struct DDIndexSchema {
-	db_table_t *table;
 	index_order_t index_order; /* this must be the same as num_children below in index nodes and caps the number to 255 */
 	uint16_t record_size; /* this is the cumulative size, in bytes, of the fields e.g. str(20) + uint64_t = 28 */
 	bool is_unique;
@@ -100,6 +99,7 @@ typedef struct DbIndex {
 	char index_name[DB_OBJECT_NAME_SZ];
 	db_idxnode_t *root_node;
 	db_index_schema_t *idx_schema;
+	db_table_t *table;
 } db_index_t;
 
 /* container that holds all types */

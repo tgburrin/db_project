@@ -243,7 +243,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				return NULL;
 			}
 			tbl->indexes[i] = init_db_idx(index->string, num_fields);
-			tbl->indexes[i]->idx_schema->table = tbl;
+			tbl->indexes[i]->table = tbl;
 
 			cJSON *idxattr = cJSON_GetObjectItemCaseSensitive(index, "order");
 			if ( idxattr != NULL && cJSON_IsNumber(idxattr) ) {
@@ -271,10 +271,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				}
 			}
 
-			db_idxnode_t *root_node = dbidx_allocate_node(tbl->indexes[i]->idx_schema);
-			root_node->parent = root_node;
-			root_node->is_leaf = true;
-			tbl->indexes[i]->root_node = root_node;
+			tbl->indexes[i]->root_node = dbidx_init_root_node(tbl->indexes[i]->idx_schema);
 
 			index = index->next;
 		}
@@ -360,7 +357,6 @@ db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
 	idxschema->fields = (dd_datafield_t **)((char *)idxschema + sizeof(db_index_schema_t));
 
 	strcpy(idx->index_name, index_name);
-	idxschema->table = NULL;
 	idxschema->index_order = 5;
 	idxschema->is_unique = false;
 	idxschema->fields_sz = num_fields;
@@ -437,9 +433,17 @@ void idx_key_to_str(db_index_schema_t *idx, db_indexkey_t *key, char *buff) {
 
 	for( uint8_t i = 0; i < idx->fields_sz; i++ ) {
 		switch (idx->fields[i]->fieldtype) {
+		case STR:
+			if ( i > 0) {
+				sprintf(p, ", ");
+				p = buff + strlen(buff);
+			}
+			snprintf(p, idx->fields[i]->fieldsz, "%s", (*key->data + offset));
+			offset += idx->fields[i]->fieldsz;
+			break;
 		case TIMESTAMP:
 			bzero(&timestampstr, sizeof(timestampstr));
-			format_timestamp((struct timespec *)(key->data + offset), timestampstr);
+			format_timestamp((struct timespec *)(*key->data + offset), timestampstr);
 			sprintf(p, "%s%s", i > 0 ? ", " : "", timestampstr);
 			offset += idx->fields[i]->fieldsz;
 			break;
