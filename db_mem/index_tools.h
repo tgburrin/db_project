@@ -90,13 +90,29 @@ void print_tree(index_t *idx, idxnode_t *idxnode, int *counter);
 void print_tree_totals(index_t *idx, idxnode_t *idxnode, int *counter);
 void print_index_scan_lookup(index_t *idx, char *key);
 
+/* new data dictionary functions */
+
+void dbidx_print_tree(db_index_t *idx, db_idxnode_t *idxnode, uint64_t *counter);
+void dbidx_print_tree_totals(db_index_t *idx, db_idxnode_t *idxnode, uint64_t *counter);
+void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
+
+db_idxnode_t *dbidx_allocate_node(db_index_schema_t *);
 db_indexkey_t *dbidx_allocate_key(db_index_schema_t *);
+void dbidx_copy_key(db_indexkey_t *, db_indexkey_t *);
+void dbidx_release_tree(db_index_t *, db_idxnode_t *);
+
 char *dbidx_allocate_key_data(db_index_schema_t *);
 bool dbidx_set_key_data_field_value(db_index_schema_t *, char *, char *, char *);
 signed char dbidx_compare_keys(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
 
 uint64_t dbidx_num_child_records(db_idxnode_t *);
-signed char dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, uint8_t *);
-db_idxnode_t *dbidx_find_node(db_index_schema_t *, db_idxnode_t *, char *);
+db_indexkey_t *dbidx_find_record(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+signed char dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
+db_idxnode_t *dbidx_find_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+
+bool dbidx_add_index_value (db_index_t *, db_idxnode_t *, db_indexkey_t *);
+db_idxnode_t *dbidx_add_node_value(db_index_t *, db_idxnode_t *, db_indexkey_t *);
+db_idxnode_t *dbidx_split_node(db_index_t *, db_idxnode_t *, db_indexkey_t *);
+void dbidx_update_max_value (db_idxnode_t *, db_idxnode_t *, db_indexkey_t *);
 
 #endif /* INDEX_TOOLS_H_ */

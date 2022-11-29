@@ -7,6 +7,8 @@
 
 #include <string.h>
 
+#include "table_tools.h"
+#include "index_tools.h"
 #include "data_dictionary.h"
 
 char const * datatype_names[] = {"STR", "TIMESTAMP", "BOOL", "I8", "UI8", "I16", "UI16", "I32", "UI32", "I64", "UI64", "UUID"};
@@ -221,7 +223,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 		free(schema);
 		schema = NULL;
 
-		db_table_t *tbl = init_dd_table(attr->string, created_schema, table_size);
+		db_table_t *tbl = init_db_table(attr->string, created_schema, table_size);
 		cJSON *indexes = cJSON_GetObjectItemCaseSensitive(attr, "indexes");
 		uint8_t num_indexes = 0;
 		cJSON *index = indexes->child;
@@ -230,7 +232,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 			index = index->next;
 		}
 		tbl->num_indexes = num_indexes;
-		tbl->indexes = calloc(num_indexes, sizeof(db_index_t));
+		tbl->indexes = calloc(num_indexes, sizeof(db_index_t *));
 		index = indexes->child;
 		for(uint8_t i = 0; i < num_indexes && index != NULL; i++) {
 			uint8_t num_fields = cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(index, "fields"));
@@ -240,27 +242,18 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				release_data_dictionary(dd);
 				return NULL;
 			}
-			db_index_schema_t *idxschema = malloc(sizeof(db_index_schema_t));
-			bzero(idxschema, sizeof(db_index_schema_t));
+			tbl->indexes[i] = init_db_idx(index->string, num_fields);
+			tbl->indexes[i]->idx_schema->table = tbl;
 
-			strcpy(tbl->indexes[i].index_name, index->string);
-			idxschema->table = tbl;
-
-			idxschema->index_order = 5;
 			cJSON *idxattr = cJSON_GetObjectItemCaseSensitive(index, "order");
 			if ( idxattr != NULL && cJSON_IsNumber(idxattr) ) {
 				double ord = cJSON_GetNumberValue(idxattr);
 				if ( ord > 0 && ord < INDEX_ORDER_MAX )
-					idxschema->index_order = (uint8_t)ord;
+					tbl->indexes[i]->idx_schema->index_order = (uint8_t)ord;
 			}
 			idxattr = cJSON_GetObjectItemCaseSensitive(index, "unique");
 			if ( idxattr != NULL && cJSON_IsBool(idxattr) && cJSON_IsTrue(idxattr))
-				idxschema->is_unique = true;
-			else
-				idxschema->is_unique = false;
-
-			idxschema->fields_sz = num_fields;
-			idxschema->fields = calloc(num_fields, sizeof(dd_datafield_t *));
+				tbl->indexes[i]->idx_schema->is_unique = true;
 
 			idxattr = cJSON_GetObjectItemCaseSensitive(index, "fields");
 			dd_datafield_t *idxfield = NULL;
@@ -268,8 +261,8 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				char *idxfieldname = cJSON_GetStringValue(cJSON_GetArrayItem(idxattr, idxfieldpos));
 				printf("Locating field for index member %s position %d\n", idxfieldname, idxfieldpos);
 				if ( (idxfield = find_dd_field(dd, idxfieldname)) != NULL ) {
-					idxschema->fields[idxfieldpos] = idxfield;
-					idxschema->record_size += idxfield->fieldsz;
+					tbl->indexes[i]->idx_schema->fields[idxfieldpos] = idxfield;
+					tbl->indexes[i]->idx_schema->record_size += idxfield->fieldsz;
 				} else {
 					fprintf(stderr, "Error locating index field member %s on table %s\n", idxfieldname, tbl->table_name);
 					free(tbl);
@@ -278,9 +271,11 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				}
 			}
 
-			tbl->indexes[i].idx_schema = idxschema;
-			tbl->indexes[i].root_node.parent = &tbl->indexes[i].root_node;
-			tbl->indexes[i].root_node.is_leaf = true;
+			db_idxnode_t *root_node = dbidx_allocate_node(tbl->indexes[i]->idx_schema);
+			root_node->parent = root_node;
+			root_node->is_leaf = true;
+			tbl->indexes[i]->root_node = root_node;
+
 			index = index->next;
 		}
 		add_dd_table(dd, tbl);
@@ -298,11 +293,9 @@ void release_data_dictionary(data_dictionary_t **dd) {
 		dd_table_schema_t *s = t->schema;
 		if ( t->indexes != NULL ) {
 			for(uint8_t idxcnt = 0; idxcnt < t->num_indexes; idxcnt++) {
-				db_index_schema_t *idx = t->indexes[idxcnt].idx_schema;
-				if ( idx->fields != NULL)
-					free(idx->fields);
-				if ( idx != NULL )
-					free(idx);
+				dbidx_release_tree(t->indexes[idxcnt], NULL);
+				free(t->indexes[idxcnt]->idx_schema->fields);
+				free(t->indexes[idxcnt]);
 			}
 			free(t->indexes);
 		}
@@ -324,7 +317,7 @@ void release_data_dictionary(data_dictionary_t **dd) {
 	free(dd);
 }
 
-db_table_t *init_dd_table(char *table_name, dd_table_schema_t *schema, uint64_t size) {
+db_table_t *init_db_table(char *table_name, dd_table_schema_t *schema, uint64_t size) {
 	if( strlen(table_name) >= DB_OBJECT_NAME_SZ )
 		return NULL;
 
@@ -352,6 +345,29 @@ dd_table_schema_t *init_dd_schema(char *schema_name, uint8_t num_fields) {
 	if ( num_fields > 0 )
 		s->fields = calloc(sizeof(dd_datafield_t *), num_fields);
 	return s;
+}
+
+db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
+	db_index_t *idx = NULL;
+	db_index_schema_t *idxschema = NULL;
+
+	size_t memsz = sizeof(db_index_t) + sizeof(db_index_schema_t) + sizeof(dd_datafield_t *) * num_fields;
+
+	idx = (db_index_t *)malloc(memsz);
+	bzero(idx, memsz);
+
+	idxschema = (db_index_schema_t *)((char *)idx + sizeof(db_index_t));
+	idxschema->fields = (dd_datafield_t **)((char *)idxschema + sizeof(db_index_schema_t));
+
+	strcpy(idx->index_name, index_name);
+	idxschema->table = NULL;
+	idxschema->index_order = 5;
+	idxschema->is_unique = false;
+	idxschema->fields_sz = num_fields;
+	idxschema->fields = calloc(num_fields, sizeof(dd_datafield_t *));
+	idx->idx_schema = idxschema;
+	idx->root_node = NULL;
+	return idx;
 }
 
 dd_datafield_t *init_dd_field_type(char *field_name, datatype_t type, uint8_t size) {
@@ -410,6 +426,46 @@ dd_datafield_t *init_dd_field_str(char *field_name, char *type, uint8_t size) {
 
 const char *map_enum_to_name(datatype_t position) {
 	return datatype_names[position];
+}
+
+void idx_key_to_str(db_index_schema_t *idx, db_indexkey_t *key, char *buff) {
+	bzero(buff, sizeof(*buff));
+
+	char *p = buff;
+	size_t offset = 0;
+	char timestampstr[31];
+
+	for( uint8_t i = 0; i < idx->fields_sz; i++ ) {
+		switch (idx->fields[i]->fieldtype) {
+		case TIMESTAMP:
+			bzero(&timestampstr, sizeof(timestampstr));
+			format_timestamp((struct timespec *)(key->data + offset), timestampstr);
+			sprintf(p, "%s%s", i > 0 ? ", " : "", timestampstr);
+			offset += idx->fields[i]->fieldsz;
+			break;
+		case UUID:
+			break;
+		case UI64:
+			break;
+		case I64:
+			break;
+		case UI32:
+			break;
+		case I32:
+			break;
+		case UI16:
+			break;
+		case I16:
+			break;
+		case UI8:
+			break;
+		case I8:
+			break;
+		default:
+			break;
+		}
+		p = buff + strlen(buff);
+	}
 }
 
 int add_dd_table(data_dictionary_t **dd, db_table_t *table) {
@@ -520,8 +576,8 @@ db_table_t *find_db_table(data_dictionary_t **dd, const char *tbl_name) {
 
 db_index_t *find_db_index(db_table_t *tbl, const char *idx_name) {
 	for(uint32_t i = 0; i<tbl->num_indexes; i++)
-		if ( strcmp(tbl->indexes[i].index_name, idx_name) == 0 )
-			return &tbl->indexes[i];
+		if ( strcmp(tbl->indexes[i]->index_name, idx_name) == 0 )
+			return tbl->indexes[i];
 	return NULL;
 }
 
@@ -534,8 +590,8 @@ dd_table_schema_t *find_dd_schema(data_dictionary_t **dd, const char *schema_nam
 
 db_index_schema_t *find_dd_idx_schema(db_table_t *tbl, const char *idx_name) {
 	for(uint32_t i = 0; i < tbl->num_indexes; i++)
-		if ( strcmp(tbl->indexes[i].index_name, idx_name) == 0 )
-			return tbl->indexes[i].idx_schema;
+		if ( strcmp(tbl->indexes[i]->index_name, idx_name) == 0 )
+			return tbl->indexes[i]->idx_schema;
 	return NULL;
 }
 

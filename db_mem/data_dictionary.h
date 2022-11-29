@@ -23,6 +23,7 @@ typedef struct DDIndexSchema db_index_schema_t;
 typedef struct DbTable db_table_t;
 typedef struct DbIndex db_index_t;
 typedef struct DbIndexNode db_idxnode_t;
+typedef struct DbIndexKey db_indexkey_t;
 
 typedef enum { STR, TIMESTAMP, BOOL, I8, UI8, I16, UI16, I32, UI32, I64, UI64, UUID } datatype_t;
 
@@ -70,7 +71,7 @@ typedef struct DbTable {
 
 	dd_table_schema_t *schema;
 	uint8_t num_indexes;
-	db_index_t *indexes;
+	db_index_t **indexes;
 	uint64_t *used_slots;
 	uint64_t *free_slots;
 	char *data;
@@ -79,15 +80,16 @@ typedef struct DbTable {
 typedef struct DbIndexNode {
 	bool is_leaf;
 	index_order_t num_children;
+	uint16_t nodesz; /* size, in bytes, allocated to this node + the array of children pointers */
 
 	db_idxnode_t *parent;
 	db_idxnode_t *next;
 	db_idxnode_t *prev;
 
-	char **children;  /* points to either nodes or keys */
+	db_indexkey_t **children;  /* points to either nodes or keys */
 } db_idxnode_t;
 
-typedef struct DbIndexKey {
+typedef struct DbIndexKey { /* an index key may either be a terminal leaf or a jump to another node */
 	db_idxnode_t *childnode;
 	uint64_t record;
 	uint16_t keysz;
@@ -96,7 +98,7 @@ typedef struct DbIndexKey {
 
 typedef struct DbIndex {
 	char index_name[DB_OBJECT_NAME_SZ];
-	db_idxnode_t root_node;
+	db_idxnode_t *root_node;
 	db_index_schema_t *idx_schema;
 } db_index_t;
 
@@ -118,12 +120,14 @@ data_dictionary_t **init_data_dictionary(uint32_t, uint32_t, uint32_t);
 data_dictionary_t **build_dd_from_json(char *);
 void release_data_dictionary(data_dictionary_t **);
 char *read_dd_json_file(char *);
-db_table_t *init_dd_table(char *, dd_table_schema_t *, uint64_t);
 dd_table_schema_t *init_dd_schema(char *, uint8_t);
+db_table_t *init_db_table(char *, dd_table_schema_t *, uint64_t);
+db_index_t *init_db_idx(char *, uint8_t);
 dd_datafield_t *init_dd_field_type(char *, datatype_t, uint8_t);
 dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 
 const char *map_enum_to_name(datatype_t);
+void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
 
 int add_dd_table(data_dictionary_t **, db_table_t *);
 int add_dd_schema(data_dictionary_t **, dd_table_schema_t *, dd_table_schema_t **);
