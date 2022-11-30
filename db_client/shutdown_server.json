@@ -1,0 +1,9 @@
+{
+	"handler": "admin_functions",
+	"operation": "",
+	"operation_flags": [],
+	"lookup_index": "",
+	"data" : {
+		"action": "shutdown"
+	}
+}

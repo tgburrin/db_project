@@ -1,0 +1,26 @@
+{
+	"handler": "subscriptions",
+	"operation": "i",
+	"operation_flags": ["delta"],
+	"lookup_index": "",
+	"data" : {
+		"subscription_id": "sub_RA9so7ER1PqN_s",
+		"customer_id": "cus_DQQb3hoJ068A1v",
+		"project_id" : "5b74a67bb40b9d1cfa2df01a",
+		"is_active": true,
+		"product_type": "website",
+		"plan_id": "website-classic-personal-monthly-usd-january-2022",
+		"deferred_plan_id": null,
+		"currency": "USD",
+		"plan_price": 1900,
+		"quantity": 1,
+		"term_start": "2022-04-14 05:59:53.906+00",
+		"term_end": "2022-05-14 05:59:53.906+00",
+		"autorenew": true,
+		"canceled_at": null,
+		"status": "active",
+		"external_reference": "",
+		"subscription_lifecycle": "resubscription",
+		"churn_type": null
+	}
+}
