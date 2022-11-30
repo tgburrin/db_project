@@ -117,8 +117,8 @@ int main (int argc, char **argv) {
 		}
 		printf("\tIndexes:\n");
 		for(int k = 0; k < t->num_indexes; k++) {
-			db_index_schema_t *idx = t->indexes[k].idx_schema;
-			printf("\t\t%s (%s of order %d): ", t->indexes[k].index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
+			db_index_schema_t *idx = t->indexes[k]->idx_schema;
+			printf("\t\t%s (%s of order %d): ", t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
 			for(int f = 0; f < idx->fields_sz; f++)
 				printf("%s%s", f == 0 ? "" : ", ", idx->fields[f]->field_name);
 			printf("\n");

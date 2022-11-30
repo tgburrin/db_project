@@ -52,8 +52,8 @@ typedef struct TableBase {
 int open_table(table_t *tablemeta, table_t **mapped_table);
 int close_table(table_t *mapped_table);
 
-int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table);
-int close_dd_table(db_table_t *mapped_table);
+bool open_dd_table(db_table_t *tablemeta);
+bool close_dd_table(db_table_t *tablemeta);
 
 uint64_t add_db_table_record(db_table_t *, char *);
 bool delete_db_table_record(db_table_t *, uint64_t, char *);

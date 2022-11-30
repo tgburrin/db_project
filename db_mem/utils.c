@@ -52,7 +52,7 @@ size_t initialize_file(char *filepath, size_t sz, int *rfd) {
 	i = access(filepath, F_OK);
 	if ( i < 0 ) {
 		if ( errno == ENOENT ) {
-			printf("File not found, initializing...\n");
+			printf("%s not found, initializing...\n", filepath);
 			if ( (fd = open(filepath, O_CREAT | O_RDWR, 0640)) < 0 ) {
 				fprintf(stderr, "Unable to open file\n");
 				fprintf(stderr, "Error: %s\n", strerror(errno));

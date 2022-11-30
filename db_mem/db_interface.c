@@ -128,6 +128,25 @@ uint64_t add_db_record(db_table_t *tbl, char *record) {
 	return rv;
 }
 
+bool load_all_dd_tables(data_dictionary_t *dd) {
+	for(uint32_t i; i < dd->num_tables; i++) {
+		if ( !open_dd_table(&dd->tables[i]) ) {
+			fprintf(stderr, "failed to load table %s\n", dd->tables[i].table_name);
+			return false;
+		}
+	}
+	return true;
+}
+bool close_all_dd_tables(data_dictionary_t *dd) {
+	for(uint32_t i; i < dd->num_tables; i++) {
+		if ( !close_dd_table(&dd->tables[i]) ) {
+			fprintf(stderr, "failed to close table %s\n", dd->tables[i].table_name);
+			return false;
+		}
+	}
+	return true;
+}
+
 char * read_db_record(db_table_t *tbl, uint64_t slot) {
 	char *record = read_db_table_record(tbl, slot);
 	return record;

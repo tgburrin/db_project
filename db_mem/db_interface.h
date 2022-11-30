@@ -19,6 +19,11 @@
 void read_index_from_record_numbers(table_t *tbl, index_t *idx);
 void write_record_numbers_from_index(index_t *idx);
 
+bool load_database (data_dictionary_t *);
+
+bool load_all_dd_tables(data_dictionary_t *);
+bool close_all_dd_tables(data_dictionary_t *);
+
 uint64_t add_db_record(db_table_t *, char *);
 bool delete_db_record(db_table_t *, char *, char *);
 char * read_db_record(db_table_t *, uint64_t);

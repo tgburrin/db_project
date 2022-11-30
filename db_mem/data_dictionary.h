@@ -60,6 +60,7 @@ typedef struct DbTable {
 	uint64_t total_record_count;
 	uint64_t free_record_slot;
 
+	db_table_t *mapped_table;
 	int filedes;
 	size_t filesize;
 
