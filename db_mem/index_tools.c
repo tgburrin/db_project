@@ -771,9 +771,18 @@ db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
 	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz;
 	rv = malloc(keysz);
 	bzero(rv, keysz);
+	rv->childnode = NULL;
 	rv->keysz = keysz;
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
 	return rv;
+}
+
+void dbidx_reset_key(db_index_schema_t *idx, db_indexkey_t *key) {
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz;
+	bzero(key, keysz);
+	key->childnode = NULL;
+	key->keysz = keysz;
+	key->data = (char **)((char *)key + sizeof(db_indexkey_t));
 }
 
 char *dbidx_allocate_key_data(db_index_schema_t *idx) {
@@ -1557,4 +1566,169 @@ void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key) {
 		idx_key_to_str(idx->idx_schema, key, msg);
 		printf("Key %s could not be found in %" PRIu64 " leaves\n", msg, leafcounter);
 	}
+}
+
+/*
+void dbidx_read_index_from_file(db_index_t *idx) {
+	char *ipth;
+	if ( (ipth = getenv("TABLE_DATA")) == NULL )
+		ipth = DEFAULT_BASE;
+
+	int fd = -1;
+	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
+
+	// path + '/' + name + '.idx' + \0
+	char *idxfile = malloc(sz);
+	bzero(idxfile, sz);
+
+	strcat(idxfile, ipth);
+	strcat(idxfile, "/");
+	strcat(idxfile, idx->index_name);
+	strcat(idxfile, ".idx");
+
+	printf("Reading keys from file %s\n", idxfile);
+	int i = access(idxfile, F_OK);
+	if ( i < 0 && errno != ENOENT ) {
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+	}
+	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
+		uint16_t recordsize = 0;
+		uint64_t recordcount = 0;
+		uint64_t counter = 0;
+
+		if ( read(fd, &recordsize, sizeof(uint16_t)) != sizeof(uint16_t) ) {
+			printf("Incomplete read of recordsize\n");
+		}
+		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) ) {
+			printf("Incomplete read of recordcount\n");
+		}
+		printf("%" PRIu64 " records of size %"PRIu16" exist in index file\n", recordcount, recordsize);
+		void *buff = malloc(sizeof(char)*recordsize);
+		for(counter = 0; counter < recordcount; counter++) {
+			bzero(buff, sizeof(char)*recordsize);
+			if ( read(fd, buff, recordsize) != recordsize ) {
+				// an index needs to be remapped in some way
+			} else {
+				add_index_value(idx, &idx->root_node, buff);
+			}
+		}
+		free(buff);
+	} else
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+
+	free(idxfile);
+}
+*/
+
+void dbidx_write_file_records(db_index_t *idx) {
+	int fd = -1;
+	char *ipth;
+
+	if ( (ipth = getenv("TABLE_DATA")) == NULL )
+		ipth = DEFAULT_BASE;
+
+	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
+
+	// path + '/' + name + '.idx' + \0
+	char *idxfile = malloc(sz);
+	bzero(idxfile, sz);
+
+	strcat(idxfile, ipth);
+	strcat(idxfile, "/");
+	strcat(idxfile, idx->index_name);
+	strcat(idxfile, ".idx");
+
+	printf("Writing records to file %s\n", idxfile);
+	int i = access(idxfile, F_OK);
+	if ( i < 0 && errno != ENOENT ) {
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+	}
+
+	if ( (fd = open(idxfile, O_CREAT | O_RDWR | O_TRUNC, 0640)) >= 0 ) {
+		db_idxnode_t *cn = idx->root_node;
+
+		while(!cn->is_leaf)
+			cn = cn->children[0]->childnode;
+
+		uint64_t recordcount = 0;
+
+		write(fd, &recordcount, sizeof(recordcount));
+		while ( cn != NULL ) {
+			for(i = 0; i < cn->num_children; i++) {
+				write(fd, &cn->children[i]->record, sizeof(uint64_t));
+				recordcount++;
+			}
+			cn = cn->next;
+		}
+		lseek(fd, 0, SEEK_SET);
+		write(fd, &recordcount, sizeof(recordcount));
+		close(fd);
+
+		printf("%" PRIu64 " records of size %lu written\n", recordcount, sizeof(uint64_t));
+	}
+	free(idxfile);
+}
+
+void dbidx_write_file_keys(db_index_t *idx) {
+	int fd = -1;
+	char *ipth;
+
+	if ( (ipth = getenv("TABLE_DATA")) == NULL )
+		ipth = DEFAULT_BASE;
+
+	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 9;
+
+	// path + '/' + name + '.idx' + \0
+	char *idxfile = malloc(sz);
+	bzero(idxfile, sz);
+
+	strcat(idxfile, ipth);
+	strcat(idxfile, "/");
+	strcat(idxfile, idx->index_name);
+	strcat(idxfile, ".idxkeys");
+
+	printf("Writing keys and records to file %s\n", idxfile);
+	int i = access(idxfile, F_OK);
+	if ( i < 0 && errno != ENOENT ) {
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+	}
+
+	if ( (fd = open(idxfile, O_CREAT | O_RDWR | O_TRUNC, 0640)) >= 0 ) {
+		db_idxnode_t *cn = idx->root_node;
+		uint64_t header = 0;
+
+		db_index_schema_t *schema = idx->idx_schema;
+		write(fd, &schema->fields_sz, sizeof(uint8_t));
+		header += sizeof(uint8_t);
+		printf("%ld bytes\n", sizeof(uint8_t));
+		for(uint8_t i = 0; i < schema->fields_sz; i++) {
+			dd_datafield_t *f = schema->fields[i];
+			write(fd, f, sizeof(dd_datafield_t));
+			header += sizeof(dd_datafield_t);
+			printf("%ld bytes\n", sizeof(dd_datafield_t));
+		}
+
+		while(!cn->is_leaf)
+			cn = cn->children[0]->childnode;
+
+		uint64_t recordcount = 0;
+
+		write(fd, &recordcount, sizeof(recordcount));
+		while ( cn != NULL ) {
+			for(i = 0; i < cn->num_children; i++) {
+				printf("writing key %s size %u\n", *cn->children[i]->data, schema->record_size);
+				write(fd, *cn->children[i]->data, schema->record_size);
+				write(fd, &cn->children[i]->record, sizeof(uint64_t));
+				recordcount++;
+			}
+			cn = cn->next;
+		}
+		lseek(fd, header, SEEK_SET);
+		printf("Seeking back %" PRIu64 " bytes\n", header);
+		write(fd, &recordcount, sizeof(recordcount));
+		close(fd);
+
+		printf("%" PRIu64 " records of size %u written\n", recordcount, schema->record_size);
+	}
+	free(idxfile);
 }

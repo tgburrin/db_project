@@ -128,6 +128,11 @@ uint64_t add_db_record(db_table_t *tbl, char *record) {
 	return rv;
 }
 
+char * read_db_record(db_table_t *tbl, uint64_t slot) {
+	char *record = read_db_table_record(tbl, slot);
+	return record;
+}
+
 bool delete_db_record(db_table_t *tbl, char *record, char *deleted_record) {
 	if ( tbl == NULL )
 		return false;
@@ -138,9 +143,34 @@ bool delete_db_record(db_table_t *tbl, char *record, char *deleted_record) {
 	return rv;
 }
 
-char * read_db_record(db_table_t *tbl, uint64_t slot) {
-	char *record = read_db_table_record(tbl, slot);
-	return record;
+void set_key_from_record(db_table_t *mtbl, db_table_t *tbl, uint64_t slot, db_index_schema_t *idx, db_indexkey_t *key) {
+	if ( key == NULL )
+		return;
+
+	char *record = read_db_record(mtbl, slot);
+	if ( record == NULL )
+		return;
+
+	key->record = slot;
+
+	size_t offset;
+	dd_datafield_t *idxfield = NULL;
+	dd_datafield_t *tblfield = NULL;
+	for(uint8_t i = 0; i < idx->fields_sz; i++) {
+		idxfield = idx->fields[i];
+		bool found = false;
+		offset = 0;
+		for(uint8_t k = 0; k < tbl->schema->fields_sz; k++) {
+			tblfield = tbl->schema->fields[k];
+			if ( idxfield == tblfield ) {
+				found = true;
+				break;
+			} else
+				offset += tblfield->fieldsz;
+		}
+		if ( found == true )
+			key->data[i] = record + offset;
+	}
 }
 
 /*

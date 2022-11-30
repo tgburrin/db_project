@@ -12,7 +12,7 @@
 #include "index_tools.h"
 #include "journal_tools.h"
 #include "server_tools.h"
-#include "db_interface.h"
+#include "data_dictionary.h"
 
 #include "utils.h"
 
@@ -22,6 +22,9 @@ void write_record_numbers_from_index(index_t *idx);
 uint64_t add_db_record(db_table_t *, char *);
 bool delete_db_record(db_table_t *, char *, char *);
 char * read_db_record(db_table_t *, uint64_t);
+
+void add_key_from_record(db_table_t *, uint64_t, db_index_t *);
+void set_key_from_record(db_table_t *, db_table_t *, uint64_t, db_index_schema_t *, db_indexkey_t*);
 
 bool set_table_field_value(dd_table_schema_t *, char *, char *);
 bool set_table_field_value_str(dd_table_schema_t *, char *, char *);

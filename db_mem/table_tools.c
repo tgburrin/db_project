@@ -165,6 +165,8 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 	size_t metadatasize =
 			sizeof(db_table_t) +
 			sizeof(dd_table_schema_t) +
+			sizeof(dd_datafield_t **) +
+			sizeof(dd_datafield_t *) * tablemeta->schema->field_count +
 			sizeof(dd_datafield_t) * tablemeta->schema->field_count +
 			sizeof(uint64_t) * tablemeta->total_record_count * 2;
 
@@ -224,6 +226,9 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 
 		/* this is ugly, but works for what it needs to do */
 		mt->schema->fields = (dd_datafield_t **)offset;
+		offset += sizeof(dd_datafield_t **);
+		*mt->schema->fields = (dd_datafield_t *)offset;
+		offset += sizeof(dd_datafield_t *) * field_count;
 		for(uint8_t i = 0; i < field_count; i++) {
 			mt->schema->fields[i] = (dd_datafield_t *)offset;
 			offset += sizeof(dd_datafield_t);
@@ -246,6 +251,8 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 				mt->schema->record_size != tablemeta->schema->record_size) {
 		// remap event
 		printf("Remap event\n");
+		printf("Total records on disk %" PRIu64 " sized to %" PRIu64 "\n", mt->total_record_count, tablemeta->total_record_count);
+		printf("Record size on disk %" PRIu16 " sized to %" PRIu16 "\n", mt->schema->record_size, tablemeta->schema->record_size);
 	} else {
 		// unexpected failure
 		printf("Unexpected failure\n");
@@ -259,20 +266,17 @@ int open_dd_table(db_table_t *tablemeta, db_table_t **mapped_table) {
 		mt->free_record_slot = tablemeta->total_record_count - 1;
 
 		/* retain the file mapped set of fields */
-		char *field_ptr = (char *)mt->schema->fields;
+		char **field_ptr = (char **)mt->schema->fields;
 		/*
 		 * after this copy, the fields array no longer is properly pointed
 		 *
 		 */
 		memcpy(mt->schema, tablemeta->schema, sizeof(dd_table_schema_t));
 		mt->schema->fields = (dd_datafield_t **)field_ptr;
-		field_ptr += sizeof(dd_datafield_t *);
 		for(uint8_t i = 0; i < mt->schema->field_count; i++) {
-			mt->schema->fields[i] = (dd_datafield_t *)field_ptr;
 			dd_datafield_t *dst = mt->schema->fields[i];
 			dd_datafield_t *src = tablemeta->schema->fields[i];
 			memcpy(dst, src, sizeof(dd_datafield_t));
-			field_ptr += sizeof(dd_datafield_t);
 		}
 
 		for(uint64_t i = 0; i < mt->total_record_count; i++) {
@@ -306,6 +310,7 @@ int close_dd_table(db_table_t *mapped_table) {
 	bzero(tn, tnsz);
 	strcpy(tn, mapped_table->table_name);
 	strcat(tn, ".shm");
+	printf("Closing %s\n", tn);
 
 	munmap(mapped_table, fs);
 	close(fd);
@@ -367,9 +372,26 @@ char *new_db_table_record(dd_table_schema_t *tbl) {
 	return record;
 }
 
+void reset_db_table_record(dd_table_schema_t *tbl, char *record) {
+	bzero(record, tbl->record_size);
+}
+
 void release_table_record(dd_table_schema_t *tbl, char *record) {
 	if (record != NULL) {
 		memset(record, 0, tbl->record_size);
 		free(record);
 	}
+}
+
+bool set_db_table_record_field(dd_table_schema_t *tbl, char *field_name, char *value, char *data) {
+	size_t offset = 0;
+	bool found = false;
+	for(uint8_t i = 0; i < tbl->fields_sz; i++) {
+		if ( strcmp(tbl->fields[i]->field_name, field_name) == 0 ) {
+			found = true;
+			memcpy(data + offset, value, tbl->fields[i]->fieldsz);
+		} else
+			offset += tbl->fields[i]->fieldsz;
+	}
+	return found;
 }

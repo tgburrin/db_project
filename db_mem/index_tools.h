@@ -18,12 +18,7 @@
 #include "utils.h"
 #include "data_dictionary.h"
 
-//#define IDX_ORDER 64
-//#define IDX_ORDER 21
-//#define IDX_ORDER 13
-//#define IDX_ORDER 9
 #define IDX_ORDER 5
-//#define IDX_ORDER 3
 
 typedef struct IndexNode {
 	bool is_leaf;
@@ -98,6 +93,7 @@ int find_node_index(index_t *idx, idxnode_t *idxnode, char *find_rec, int *index
 db_idxnode_t *dbidx_init_root_node(db_index_schema_t *);
 db_idxnode_t *dbidx_allocate_node(db_index_schema_t *);
 db_indexkey_t *dbidx_allocate_key(db_index_schema_t *); /* allocates just the key, data must be maintained separately */
+void dbidx_reset_key(db_index_schema_t *, db_indexkey_t *);
 char *dbidx_allocate_key_data(db_index_schema_t *); /* allocates just the data to be attached to the key */
 /* the allocates both key and data, attaches it to the key, but copies will not account for the data payload
  * it is useful only for comparisons */
@@ -128,5 +124,9 @@ void dbidx_update_max_value (db_idxnode_t *, db_idxnode_t *, db_indexkey_t *);
 void dbidx_print_tree(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
+
+void dbidx_read_file_records(db_index_t *idx);
+void dbidx_write_file_records(db_index_t *);
+void dbidx_write_file_keys(db_index_t *);
 
 #endif /* INDEX_TOOLS_H_ */

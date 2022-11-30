@@ -145,7 +145,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 			continue;
 		}
 		if ( !add_dd_field(dd, field)) {
-			fprintf(stderr, "could add dd field %s to dictionary\n", field->field_name);
+			fprintf(stderr, "could not add dd field %s to dictionary\n", field->field_name);
 			attr = attr->next;
 			continue;
 		} else {
@@ -259,7 +259,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 			dd_datafield_t *idxfield = NULL;
 			for(uint8_t idxfieldpos = 0; idxfieldpos < num_fields; idxfieldpos++) {
 				char *idxfieldname = cJSON_GetStringValue(cJSON_GetArrayItem(idxattr, idxfieldpos));
-				printf("Locating field for index member %s position %d\n", idxfieldname, idxfieldpos);
+				//printf("Locating field for index member %s position %d\n", idxfieldname, idxfieldpos);
 				if ( (idxfield = find_dd_field(dd, idxfieldname)) != NULL ) {
 					tbl->indexes[i]->idx_schema->fields[idxfieldpos] = idxfield;
 					tbl->indexes[i]->idx_schema->record_size += idxfield->fieldsz;
@@ -561,11 +561,12 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 
 int add_dd_table_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
 	if ( s->field_count + 1 > s->fields_sz ) {
+		fprintf(stderr, "Resizing schema fields\n");
 		s->fields_sz++;
 		s->fields = realloc(s->fields, sizeof(dd_datafield_t *) * s->fields_sz);
 	}
 
-	s->fields[s->field_count] =f;
+	s->fields[s->field_count] = f;
 	(s->field_count)++;
 	s->record_size += f->fieldsz;
 	return 1;
