@@ -25,7 +25,7 @@ typedef struct DbIndex db_index_t;
 typedef struct DbIndexNode db_idxnode_t;
 typedef struct DbIndexKey db_indexkey_t;
 
-typedef enum { STR, TIMESTAMP, BOOL, I8, UI8, I16, UI16, I32, UI32, I64, UI64, UUID } datatype_t;
+typedef enum { STR, TIMESTAMP, BOOL, I8, UI8, I16, UI16, I32, UI32, I64, UI64, UUID, BYTES } datatype_t;
 
 typedef int (*compare_value_f)(char *, char *);
 
@@ -33,14 +33,14 @@ typedef int (*compare_value_f)(char *, char *);
 typedef struct DDDataField {
 	char field_name[DB_OBJECT_NAME_SZ];
 	datatype_t fieldtype;
-	uint8_t fieldsz;  /* in bytes */
+	uint8_t field_sz;  /* in bytes */
 } dd_datafield_t;
 
 typedef struct DDTableSchema {
 	char schema_name[DB_OBJECT_NAME_SZ];
 	uint8_t field_count;
 	uint16_t record_size;
-	uint8_t fields_sz;  /* this is the size of the array below */
+	uint8_t num_fields;  /* this is the size of the array below */
 	dd_datafield_t **fields;
 } dd_table_schema_t;
 
@@ -48,7 +48,7 @@ typedef struct DDIndexSchema {
 	index_order_t index_order; /* this must be the same as num_children below in index nodes and caps the number to 255 */
 	uint16_t record_size; /* this is the cumulative size, in bytes, of the fields e.g. str(20) + uint64_t = 28 */
 	bool is_unique;
-	uint8_t fields_sz;  /* this is both the number of fields in the index and the size of the array below */
+	uint8_t num_fields;  /* this is both the number of fields in the index and the size of the array below */
 	dd_datafield_t **fields;
 } db_index_schema_t;
 
@@ -129,6 +129,7 @@ dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 
 const char *map_enum_to_name(datatype_t);
 void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
+bool dd_type_to_str(dd_datafield_t *, char *, char *);
 
 int add_dd_table(data_dictionary_t **, db_table_t *);
 int add_dd_schema(data_dictionary_t **, dd_table_schema_t *, dd_table_schema_t **);

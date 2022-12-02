@@ -44,6 +44,7 @@ int move_and_replace_file(char *src_path, char *dst_path, char *filename);
 bool is_utc_timestamp(char *timestr);
 bool parse_date(char *datestr, struct timespec *tm);
 bool parse_timestamp(char *timestr, struct timespec *tm);
+bool parse_utc_timestamp(char *timestr, struct timespec *tm);
 void format_timestamp(struct timespec *t, char out[31]);
 
 #endif /* UTILS_H_ */

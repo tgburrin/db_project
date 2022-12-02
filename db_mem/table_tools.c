@@ -322,6 +322,8 @@ bool close_dd_table(db_table_t *tbl) {
 	munmap(tbl->mapped_table, fs);
 	close(fd);
 
+	tbl->mapped_table = NULL;
+
 	move_and_replace_file(DEFAULT_SHM, tpth, tn);
 
 	free(tn);
@@ -393,12 +395,31 @@ void release_table_record(dd_table_schema_t *tbl, char *record) {
 bool set_db_table_record_field(dd_table_schema_t *tbl, char *field_name, char *value, char *data) {
 	size_t offset = 0;
 	bool found = false;
-	for(uint8_t i = 0; i < tbl->fields_sz; i++) {
+	for(uint8_t i = 0; i < tbl->num_fields; i++) {
 		if ( strcmp(tbl->fields[i]->field_name, field_name) == 0 ) {
 			found = true;
-			memcpy(data + offset, value, tbl->fields[i]->fieldsz);
+			memcpy(data + offset, value, tbl->fields[i]->field_sz);
 		} else
-			offset += tbl->fields[i]->fieldsz;
+			offset += tbl->fields[i]->field_sz;
 	}
 	return found;
+}
+
+void db_table_record_print(dd_table_schema_t *tbl, char *data) {
+	char buff[128];
+	size_t offset = 0, max_label_size = 0;
+	for(uint8_t i = 0; i < tbl->num_fields; i++)
+		if ( strlen(tbl->fields[i]->field_name) > max_label_size)
+			max_label_size = strlen(tbl->fields[i]->field_name);
+	char padding[max_label_size+1];
+
+	for(uint8_t i = 0; i < tbl->num_fields; i++) {
+		bzero(&buff, sizeof(buff));
+		dd_type_to_str(tbl->fields[i], data + offset, buff);
+		memset(padding, ' ', max_label_size);
+		padding[max_label_size] = '\0';
+		memcpy(padding, tbl->fields[i]->field_name, strlen(tbl->fields[i]->field_name));
+		printf("%s: %s\n", padding, buff);
+		offset += tbl->fields[i]->field_sz;
+	}
 }

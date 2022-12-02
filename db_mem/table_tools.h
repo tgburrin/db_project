@@ -63,4 +63,7 @@ void reset_db_table_record(dd_table_schema_t *, char *);
 void release_table_record(dd_table_schema_t *, char *);
 bool set_db_table_record_field(dd_table_schema_t *, char *, char *, char *);
 
+void db_table_record_print(dd_table_schema_t *, char *);
+void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);
+
 #endif /* TABLE_TOOLS_H_ */
