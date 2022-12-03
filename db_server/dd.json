@@ -57,6 +57,10 @@
 					"unique": false,
 					"order": 15,
 					"fields": ["customer_id"]
+				},
+				"project_id_idx": {
+					"unique": false,
+					"fields": ["project_id"]
 				}
 			}
 		}
