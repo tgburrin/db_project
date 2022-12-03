@@ -52,8 +52,8 @@ size_t initialize_file(char *filepath, size_t sz, int *rfd) {
 	i = access(filepath, F_OK);
 	if ( i < 0 ) {
 		if ( errno == ENOENT ) {
-			printf("File not found, initializing...\n");
-			if ( (fd = open(filepath, O_CREAT | O_RDWR, 0640)) < 0 ) {
+			printf("%s not found, initializing...\n", filepath);
+			if ( (fd =	 open(filepath, O_CREAT | O_RDWR, 0640)) < 0 ) {
 				fprintf(stderr, "Unable to open file\n");
 				fprintf(stderr, "Error: %s\n", strerror(errno));
 
@@ -290,6 +290,78 @@ bool parse_timestamp(char *timestr, struct timespec *tm) {
 		free(msg);
 	}
 	return rv;
+}
+
+bool parse_utc_timestamp(char *timestr, struct timespec *tm) {
+	bzero(tm, sizeof(struct timespec));
+
+	if ( !is_utc_timestamp(timestr) )
+		return false;
+
+	char buff[10];
+	char *pos = timestr, *nanostr = NULL;
+	int timepart = 0;
+
+	struct tm pt;
+	bzero(&pt, sizeof(pt));
+
+	// year
+	bzero(&buff, sizeof(buff));
+	strncpy(buff, pos, 4);
+	timepart = atoi(buff);
+	pt.tm_year = timepart - 1900;
+	pos += 5;
+
+	bzero(&buff, sizeof(buff));
+	strncpy(buff, pos, 2);
+	timepart = atoi(buff);
+	pt.tm_mon = timepart - 1;
+	pos += 3;
+
+	bzero(&buff, sizeof(buff));
+	strncpy(buff, pos, 2);
+	timepart = atoi(buff);
+	pt.tm_mday = timepart;
+	pos += 3;
+
+	bzero(&buff, sizeof(buff));
+	strncpy(buff, pos, 2);
+	pt.tm_hour = atoi(buff);
+	pos += 3;
+
+	bzero(&buff, sizeof(buff));
+	strncpy(buff, pos, 2);
+	pt.tm_min = atoi(buff);
+	pos += 3;
+
+	bzero(&buff, sizeof(buff));
+	strncpy(buff, pos, 2);
+	pt.tm_sec = atoi(buff);
+	pos += 3;
+
+	tm->tv_sec = mktime(&pt);
+
+	if ( strlen(pos) > 0 ) {
+		bzero(&buff, sizeof(buff));
+		strcat(buff, pos);
+
+		//bzero(&buff, sizeof(buff));
+		nanostr = strtok(buff, "Z");
+		if ( nanostr == NULL || strcmp(nanostr, buff) == 0 )
+			nanostr = strtok(buff, "+");
+
+		if ( strlen(nanostr) > 0 ) {
+			uint8_t len = 9 - strlen(nanostr);
+			uint64_t mult = 1; //power of 10
+			for(int k = 0; k < len; k++)
+				mult *= 10;
+			long nsec = atol(nanostr) * mult;
+			tm->tv_nsec = nsec;
+		}
+	}
+	//tm->tv_sec += mktime(&pt);
+
+	return true;
 }
 
 void format_timestamp(struct timespec *t, char out[31]) {

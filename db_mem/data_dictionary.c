@@ -262,7 +262,7 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 				//printf("Locating field for index member %s position %d\n", idxfieldname, idxfieldpos);
 				if ( (idxfield = find_dd_field(dd, idxfieldname)) != NULL ) {
 					tbl->indexes[i]->idx_schema->fields[idxfieldpos] = idxfield;
-					tbl->indexes[i]->idx_schema->record_size += idxfield->fieldsz;
+					tbl->indexes[i]->idx_schema->record_size += idxfield->field_sz;
 				} else {
 					fprintf(stderr, "Error locating index field member %s on table %s\n", idxfieldname, tbl->table_name);
 					free(tbl);
@@ -290,7 +290,8 @@ void release_data_dictionary(data_dictionary_t **dd) {
 		dd_table_schema_t *s = t->schema;
 		if ( t->indexes != NULL ) {
 			for(uint8_t idxcnt = 0; idxcnt < t->num_indexes; idxcnt++) {
-				dbidx_release_tree(t->indexes[idxcnt], NULL);
+				if (t->indexes[idxcnt]->root_node != NULL)
+					dbidx_release_tree(t->indexes[idxcnt], NULL);
 				free(t->indexes[idxcnt]->idx_schema->fields);
 				free(t->indexes[idxcnt]);
 			}
@@ -337,7 +338,7 @@ dd_table_schema_t *init_dd_schema(char *schema_name, uint8_t num_fields) {
 	strcpy(s->schema_name, schema_name);
 	s->field_count = 0;
 	s->record_size = 0;
-	s->fields_sz = num_fields;
+	s->num_fields = num_fields;
 	s->fields = NULL;
 	if ( num_fields > 0 )
 		s->fields = calloc(sizeof(dd_datafield_t *), num_fields);
@@ -359,7 +360,7 @@ db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
 	strcpy(idx->index_name, index_name);
 	idxschema->index_order = 5;
 	idxschema->is_unique = false;
-	idxschema->fields_sz = num_fields;
+	idxschema->num_fields = num_fields;
 	idxschema->fields = calloc(num_fields, sizeof(dd_datafield_t *));
 	idx->idx_schema = idxschema;
 	idx->root_node = NULL;
@@ -373,7 +374,7 @@ dd_datafield_t *init_dd_field_type(char *field_name, datatype_t type, uint8_t si
 	dd_datafield_t *f = malloc(sizeof(dd_datafield_t));
 	memset(f, 0, sizeof(dd_datafield_t));
 	strcpy(f->field_name, field_name);
-	f->fieldsz = get_dd_field_size(type, size);
+	f->field_sz = get_dd_field_size(type, size);
 	f->fieldtype = type;
 
 	return f;
@@ -414,6 +415,8 @@ dd_datafield_t *init_dd_field_str(char *field_name, char *type, uint8_t size) {
 			field_type = UI8;
 		else
 			return NULL;
+	else if (strcmp(type, "BYTES") == 0)
+		field_type = BYTES;
 	else
 		return NULL;
 
@@ -424,50 +427,73 @@ const char *map_enum_to_name(datatype_t position) {
 	return datatype_names[position];
 }
 
+bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
+	bool rv = false;
+	char timestampstr[31];
+
+	switch (field->fieldtype) {
+	case STR:
+		snprintf(str, field->field_sz, "%s", data);
+		break;
+	case TIMESTAMP:
+		bzero(&timestampstr, sizeof(timestampstr));
+		if ( data != NULL )
+			format_timestamp((struct timespec *)data, timestampstr);
+		sprintf(str, "%s", timestampstr);
+		break;
+	case UUID:
+		uuid_unparse(*(uuid_t *)data, str);
+		break;
+	case UI64:
+		sprintf(str, "%" PRIu64, *(uint64_t *)data);
+		break;
+	case I64:
+		sprintf(str, "%" PRIi64, *(int64_t *)data);
+		break;
+	case UI32:
+		sprintf(str, "%" PRIu32, *(uint32_t *)data);
+		break;
+	case I32:
+		sprintf(str, "%" PRIi32, *(int32_t *)data);
+		break;
+	case UI16:
+		sprintf(str, "%" PRIu16, *(uint16_t *)data);
+		break;
+	case I16:
+		sprintf(str, "%" PRIi16, *(int16_t *)data);
+		break;
+	case UI8:
+		sprintf(str, "%" PRIu8, *(uint8_t *)data);
+		break;
+	case I8:
+		sprintf(str, "%" PRIi8, *(int8_t *)data);
+		break;
+	case BOOL:
+		sprintf(str, "%s", *(bool *)data == true ? "true" : "false");
+		break;
+	case BYTES:
+		for(uint32_t i = 0; i < field->field_sz; i++)
+			sprintf(str + i * 2, "%02x", ((unsigned char *)data)[i]);
+		break;
+	default:
+		break;
+	}
+	return rv;
+}
+
 void idx_key_to_str(db_index_schema_t *idx, db_indexkey_t *key, char *buff) {
 	bzero(buff, sizeof(*buff));
 
 	char *p = buff;
 	size_t offset = 0;
-	char timestampstr[31];
 
-	for( uint8_t i = 0; i < idx->fields_sz; i++ ) {
-		switch (idx->fields[i]->fieldtype) {
-		case STR:
-			if ( i > 0) {
-				sprintf(p, ", ");
-				p = buff + strlen(buff);
-			}
-			snprintf(p, idx->fields[i]->fieldsz, "%s", (*key->data + offset));
-			offset += idx->fields[i]->fieldsz;
-			break;
-		case TIMESTAMP:
-			bzero(&timestampstr, sizeof(timestampstr));
-			format_timestamp((struct timespec *)(*key->data + offset), timestampstr);
-			sprintf(p, "%s%s", i > 0 ? ", " : "", timestampstr);
-			offset += idx->fields[i]->fieldsz;
-			break;
-		case UUID:
-			break;
-		case UI64:
-			break;
-		case I64:
-			break;
-		case UI32:
-			break;
-		case I32:
-			break;
-		case UI16:
-			break;
-		case I16:
-			break;
-		case UI8:
-			break;
-		case I8:
-			break;
-		default:
-			break;
+	for( uint8_t i = 0; i < idx->num_fields; i++ ) {
+		if ( i > 0) {
+			sprintf(p, ", ");
+			p = buff + strlen(buff);
 		}
+		dd_type_to_str(idx->fields[i], (*key->data + offset), p);
+		offset += idx->fields[i]->field_sz;
 		p = buff + strlen(buff);
 	}
 }
@@ -553,6 +579,10 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 	case I8:
 		size = sizeof(int8_t);
 		break;
+
+	case BYTES:
+		size = sizeof(unsigned char) * size;
+		break;
 	default:
 		break;
 	}
@@ -560,15 +590,15 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 }
 
 int add_dd_table_schema_field(dd_table_schema_t *s, dd_datafield_t *f) {
-	if ( s->field_count + 1 > s->fields_sz ) {
+	if ( s->field_count + 1 > s->num_fields ) {
 		fprintf(stderr, "Resizing schema fields\n");
-		s->fields_sz++;
-		s->fields = realloc(s->fields, sizeof(dd_datafield_t *) * s->fields_sz);
+		s->num_fields++;
+		s->fields = realloc(s->fields, sizeof(dd_datafield_t *) * s->num_fields);
 	}
 
 	s->fields[s->field_count] = f;
 	(s->field_count)++;
-	s->record_size += f->fieldsz;
+	s->record_size += f->field_sz;
 	return 1;
 }
 
@@ -640,6 +670,16 @@ signed char i8_compare(int8_t *a, int8_t *b) {
 }
 signed char ui8_compare(uint8_t *a, uint8_t *b) {
 	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+
+signed char bytes_compare(const unsigned char *a, const unsigned char *b, size_t n) {
+	for(size_t i = 0; i < n; i++) {
+		if ( a[i] > b[i])
+			return 1;
+		else if ( a[i] < b[i])
+			return -1;
+	}
+	return 0;
 }
 
 signed char ts_compare (struct timespec *ts1, struct timespec *ts2) {

@@ -768,7 +768,7 @@ db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
 		return rv;
 
 	/* This is kind of an unsafe strategy, but it should work */
-	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz;
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	rv = malloc(keysz);
 	bzero(rv, keysz);
 	rv->childnode = NULL;
@@ -778,11 +778,19 @@ db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
 }
 
 void dbidx_reset_key(db_index_schema_t *idx, db_indexkey_t *key) {
-	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz;
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	bzero(key, keysz);
 	key->childnode = NULL;
 	key->keysz = keysz;
 	key->data = (char **)((char *)key + sizeof(db_indexkey_t));
+}
+
+void dbidx_reset_key_with_data(db_index_schema_t *idx, db_indexkey_t *key) {
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields + sizeof(char *) * idx->record_size;
+	bzero(key, keysz);
+	key->keysz = keysz;
+	key->data = (char **)((char *)key + sizeof(db_indexkey_t));
+	*key->data = (char *)key + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 }
 
 char *dbidx_allocate_key_data(db_index_schema_t *idx) {
@@ -802,13 +810,13 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 		return rv;
 
 	/* This is kind of an unsafe strategy, but it should work */
-	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz + sizeof(char *) * idx->record_size;
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields + sizeof(char *) * idx->record_size;
 	//printf("Allocating a total of %ld bytes (%ld %ld %ld)\n", keysz, sizeof(db_indexkey_t), sizeof(char *) * idx->fields_sz, sizeof(char *) * idx->record_size);
 	rv = malloc(keysz);
 	bzero(rv, keysz);
 	rv->keysz = keysz;
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
-	*rv->data = (char *)rv + sizeof(db_indexkey_t) + sizeof(char *) * idx->fields_sz;
+	*rv->data = (char *)rv + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	return rv;
 }
 
@@ -831,30 +839,44 @@ void dbidx_release_tree(db_index_t *idx, db_idxnode_t *idxnode) {
 		for(index_order_t i = 0; i < current_node->num_children; i++) {
 			dbidx_release_tree(idx, current_node->children[i]->childnode);
 			free(current_node->children[i]);
+			current_node->children[i] = NULL;
 		}
-		free(current_node);
-		current_node = NULL;
 	} else {
 		for(index_order_t i = 0; i < current_node->num_children; i++)
 			if ( current_node->children[i] != NULL ) {
 				free(current_node->children[i]);
 				current_node->children[i] = NULL;
 			}
-		free(current_node);
-		current_node = NULL;
 	}
+	free(current_node);
+	current_node = NULL;
 }
 
 bool dbidx_set_key_data_field_value(db_index_schema_t *idx, char *field_name, char *data, char *value) {
 	size_t offset = 0;
 	dd_datafield_t *f = NULL;
-	for(uint8_t i = 0; i < idx->fields_sz; i++) {
+	for(uint8_t i = 0; i < idx->num_fields; i++) {
 		f = idx->fields[i];
 		if ( strcmp(f->field_name, field_name) == 0 ) {
-			memcpy(data + offset, value, f->fieldsz);
+			memcpy(data + offset, value, f->field_sz);
 			return true;
 		} else {
-			offset += f->fieldsz;
+			offset += f->field_sz;
+		}
+	}
+	return false;
+}
+bool dbidx_set_key_field_value(db_index_schema_t *idx, char *field_name, db_indexkey_t *key, char *value) {
+	dd_datafield_t *f = NULL;
+	for(uint8_t i = 0; i < idx->num_fields; i++) {
+		f = idx->fields[i];
+		if ( strcmp(f->field_name, field_name) == 0 ) {
+			bzero(key->data[i], f->field_sz);
+			size_t fieldsz = f->field_sz;
+			if ( f->fieldtype == STR )
+				fieldsz = strlen(value);
+			memcpy(key->data[i], value, fieldsz);
+			return true;
 		}
 	}
 	return false;
@@ -867,10 +889,10 @@ signed char dbidx_compare_keys(db_index_schema_t *idx, db_indexkey_t *keya, db_i
 	if ( idx == NULL || keya == NULL || keyb == NULL )
 		return -2;
 
-	for(uint8_t i = 0; i < idx->fields_sz; i++) {
+	for(uint8_t i = 0; i < idx->num_fields; i++) {
 		switch (idx->fields[i]->fieldtype) {
 		case STR:
-			rv = str_compare_sz(keya->data[i], keyb->data[i], idx->fields[i]->fieldsz);
+			rv = str_compare_sz(keya->data[i], keyb->data[i], idx->fields[i]->field_sz);
 			break;
 		case TIMESTAMP:
 			rv = ts_compare((struct timespec *)keya->data[i], (struct timespec *)keyb->data[i]);
@@ -906,6 +928,9 @@ signed char dbidx_compare_keys(db_index_schema_t *idx, db_indexkey_t *keya, db_i
 			break;
 		case I8:
 			rv = i8_compare((int8_t *)keya->data[i], (int8_t *)keyb->data[i]);
+			break;
+		case BYTES:
+			rv = bytes_compare((unsigned char *)keya->data[i], (unsigned char *)keyb->data[i], idx->fields[i]->field_sz);
 			break;
 		default:
 			rv = -2;
@@ -984,9 +1009,9 @@ signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode,
 		 */
 
 		if ( (upper - lower) <= 1 ) {
-			while ( i >= 0 && dbidx_compare_keys(idx, idxnode->children[i], find_rec) > 0 )
+			while ( i >= 0 && i < idxnode->num_children && dbidx_compare_keys(idx, idxnode->children[i], find_rec) > 0 )
 				i--;
-			while ( i >= 0 && dbidx_compare_keys(idx, idxnode->children[i], find_rec) < 0 )
+			while ( i >= 0 && i < idxnode->num_children && dbidx_compare_keys(idx, idxnode->children[i], find_rec) < 0 )
 				i++;
 			break;
 		} else if ( dbidx_compare_keys(idx, idxnode->children[i], find_rec) < 0 ) {
@@ -1515,6 +1540,9 @@ void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key) {
 	while ( !i->is_leaf )
 		i = i->children[0]->childnode;
 
+	if ( i->num_children == 0 )
+		return;
+
 	char left[128], right[128], msg[128];
 	idx_key_to_str(idx->idx_schema, i->children[0], left);
 	idx_key_to_str(idx->idx_schema, i->children[i->num_children-1], right);
@@ -1698,10 +1726,10 @@ void dbidx_write_file_keys(db_index_t *idx) {
 		uint64_t header = 0;
 
 		db_index_schema_t *schema = idx->idx_schema;
-		write(fd, &schema->fields_sz, sizeof(uint8_t));
+		write(fd, &schema->num_fields, sizeof(uint8_t));
 		header += sizeof(uint8_t);
 		printf("%ld bytes\n", sizeof(uint8_t));
-		for(uint8_t i = 0; i < schema->fields_sz; i++) {
+		for(uint8_t i = 0; i < schema->num_fields; i++) {
 			dd_datafield_t *f = schema->fields[i];
 			write(fd, f, sizeof(dd_datafield_t));
 			header += sizeof(dd_datafield_t);

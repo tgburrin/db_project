@@ -1,0 +1,63 @@
+{
+	"fields": {
+		"subscription_id":        { "type": "STR", "size": 18 },
+		"customer_id":            { "type": "STR", "size": 18 },
+		"project_id":             { "type": "BYTES", "size": 12 },
+		"is_active":              { "type": "BOOL" },
+		"product_type":           { "type": "STR", "size": 16 },
+		"plan_id":                { "type": "STR", "size": 128 },
+		"deferred_plan_id":       { "type": "STR", "size": 128 },
+		"currency":               { "type": "STR", "size": 4 },
+		"plan_price":             { "type": "UI32" },
+		"quantity":               { "type": "UI16" },
+		"term_start":             { "type": "TIMESTAMP" },
+		"term_end":               { "type": "TIMESTAMP" },
+		"autorenew":              { "type": "BOOL" },
+		"canceled_at":            { "type": "TIMESTAMP" },
+		"status":                 { "type": "STR", "size": 24 },
+		"external_reference":     { "type": "STR", "size": 96 },
+		"subscription_lifecycle": { "type": "STR", "size": 16 },
+		"churn_type":             { "type": "STR", "size": 16 },
+
+		"created_dt":             { "type": "TIMESTAMP" },
+		"record_counter":	  { "type": "UI64" },
+		"record_msg":		  { "type": "STR", "size": 128 },
+		"record_id":              { "type": "UUID" }
+	},
+	"tables": {
+		"subscriptions": {
+			"size": 50,
+			"fields": [
+				"subscription_id",
+				"customer_id",
+				"project_id",
+				"is_active",
+				"product_type",
+				"plan_id",
+				"deferred_plan_id",
+				"currency",
+				"plan_price",
+				"quantity",
+				"term_start",
+				"term_end",
+				"autorenew",
+				"canceled_at",
+				"status",
+				"external_reference",
+				"subscription_lifecycle",
+				"churn_type"
+			],
+			"indexes": {
+				"subscription_id_idx_uq": {
+					"unique": true,
+					"fields": ["subscription_id"]
+				},
+				"customer_id_idx": {
+					"unique": false,
+					"order": 15,
+					"fields": ["customer_id"]
+				}
+			}
+		}
+	}
+}

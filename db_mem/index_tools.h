@@ -94,6 +94,7 @@ db_idxnode_t *dbidx_init_root_node(db_index_schema_t *);
 db_idxnode_t *dbidx_allocate_node(db_index_schema_t *);
 db_indexkey_t *dbidx_allocate_key(db_index_schema_t *); /* allocates just the key, data must be maintained separately */
 void dbidx_reset_key(db_index_schema_t *, db_indexkey_t *);
+void dbidx_reset_key_with_data(db_index_schema_t *, db_indexkey_t *);
 char *dbidx_allocate_key_data(db_index_schema_t *); /* allocates just the data to be attached to the key */
 /* the allocates both key and data, attaches it to the key, but copies will not account for the data payload
  * it is useful only for comparisons */
@@ -103,6 +104,7 @@ bool dbidx_copy_key(db_indexkey_t *, db_indexkey_t *);
 void dbidx_release_tree(db_index_t *, db_idxnode_t *);
 
 bool dbidx_set_key_data_field_value(db_index_schema_t *, char *, char *, char *);
+bool dbidx_set_key_field_value(db_index_schema_t *, char *, db_indexkey_t *, char *);
 signed char dbidx_compare_keys(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
 
 uint64_t dbidx_num_child_records(db_idxnode_t *);

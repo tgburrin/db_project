@@ -114,6 +114,7 @@ bool open_journal (journal_t *j) {
 }
 
 bool journal_sync_off(journal_t *j) {
+	printf("Turning off fsync\n");
 	bool rv = false;
 	if ( j->opened && j->fsync_on ) {
 		j->fsync_on = false;
@@ -123,6 +124,7 @@ bool journal_sync_off(journal_t *j) {
 }
 
 bool journal_sync_on(journal_t *j) {
+	printf("Turning on fsync\n");
 	bool rv = false;
 	if ( j->opened && !j->fsync_on ) {
 		j->fsync_on = true;

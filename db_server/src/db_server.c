@@ -8,88 +8,66 @@
  ============================================================================
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
 #include <unistd.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <inttypes.h>
+#include <arpa/inet.h>
 
 #include <zlib.h>
 
-#include <time.h>
-
-#include <db_interface.h>
-
-#define NUM_SUBSCRIPTIONS 15000000
-//#define NUM_SUBSCRIPTIONS 1000
-
-#define SUBSCRIPTION_ID_LENTH 18
-#define CUSTOMER_ID_LENTH 18
-
-typedef struct IndexSubIdKey {
-	// requires -fms-extensions option for gcc
-	struct IndexKey;
-	char *subscription_id;
-} idxsubidkey_t;
-
-typedef struct IndexCustIdKey {
-	// requires -fms-extensions option for gcc
-	struct IndexKey;
-	char *customer_id;
-} idxcustidkey_t;
-
-typedef struct Subscription {
-	char subscription_id[SUBSCRIPTION_ID_LENTH + 1];
-	char customer_id[CUSTOMER_ID_LENTH + 1];
-	char project_id[12];
-	bool is_active;
-	char product_type[16];
-	char plan_id[128];
-	char deferred_plan_id[128];
-	char currency[4];
-	uint32_t plan_price;
-	uint16_t quantity;
-	struct timespec term_start;
-	struct timespec term_end;
-	bool autorenew;
-	struct timespec canceled_at;
-	char status[24];
-	char external_reference[96];
-	char subscription_lifecycle[16];
-	char churn_type[16];
-} subscription_t;
+#include "table_tools.h"
+#include "index_tools.h"
+#include "journal_tools.h"
+#include "server_tools.h"
+#include "data_dictionary.h"
+#include "db_interface.h"
+#include "utils.h"
 
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 
-bool subscription_txn_handler(journal_t *, table_t *, index_t **, uint8_t, char, subscription_t *, char *);
+bool subscription_txn_handler(journal_t *, db_table_t *, char, char *, char *);
 
-void print_subscription_key(char *vk, char *dst);
-void print_customer_key(char *vk, char *dst);
+void display_data_dictionary(data_dictionary_t **data_dictionary) {
+	printf("Field list:\n");
+	for(int i = 0; i<(*data_dictionary)->num_fields; i++)
+		printf("%s\n", (&(*data_dictionary)->fields[i])->field_name);
 
-int compare_subscription_id (char *a, char *b);
-int compare_customer_id (char *a, char *b);
+	printf("Schemas:\n");
+	for(int i = 0; i<(*data_dictionary)->num_schemas; i++) {
+		dd_table_schema_t *s = &(*data_dictionary)->schemas[i];
+		printf("%s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		for(int k = 0; k < s->field_count; k++) {
+			dd_datafield_t *f = s->fields[k];
+			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
+			if ( f->fieldtype == STR )
+				printf(" %d", f->field_sz);
+			printf(")\n");
+		}
+	}
 
-char * create_subid_key(void);
-char * create_custid_key(void);
+	printf("Tables:\n");
+	for(int i = 0; i<(*data_dictionary)->num_tables; i++) {
+		db_table_t *t = &(*data_dictionary)->tables[i];
+		dd_table_schema_t *s = t->schema;
 
-void release_subid_key(char *);
-void release_custid_key(char *);
-
-char * copy_subid_key(char *inkey, char *outkey);
-char * copy_custid_key(char *inkey, char *outkey);
-
-void set_subid_key_value(char *k, uint64_t v);
-void set_custid_key_value(char *k, uint64_t v);
-
-uint64_t get_subid_key_value(char *k);
-uint64_t get_custid_key_value(char *k);
+		printf("%s\n", t->table_name);
+		printf("\tschema %s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		for(int k = 0; k < s->field_count; k++) {
+			dd_datafield_t *f = s->fields[k];
+			printf("\t\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
+			if ( f->fieldtype == STR )
+				printf(" %d", f->field_sz);
+			printf(")\n");
+		}
+		printf("\tIndexes:\n");
+		for(int k = 0; k < t->num_indexes; k++) {
+			db_index_schema_t *idx = t->indexes[k]->idx_schema;
+			printf("\t\t%s (%s of order %d): ", t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
+			for(int f = 0; f < idx->num_fields; f++)
+				printf("%s%s", f == 0 ? "" : ", ", idx->fields[f]->field_name);
+			printf("\n");
+		}
+	}
+}
 
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
@@ -122,14 +100,13 @@ bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *
 	return rv;
 }
 
+
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
 	char *operation = NULL, *lookup_index = NULL;
 	char op;
 	journal_t *j = (journal_t *)(argv[0]);
-	table_t *tbl = (table_t *)(argv[1]);
-	uint8_t index_cnt = *((uint8_t *)(argv[2]));
-	index_t **index_list = (index_t **)(argv[3]);
+	db_table_t *tbl = (db_table_t *)(argv[1]);
 
 	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
 	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
@@ -156,23 +133,23 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 	switch (op) {
 		case 'i': ;
 			printf("Running insert on %s\n", tbl->table_name);
-			for(int i = 0; i < index_cnt; i++)
-				printf("\tIndex -> %s\n", (index_list[i])->index_name);
-			subscription_t s;
-			bzero(&s, sizeof(subscription_t));
+			for(uint8_t i = 0; i < tbl->num_indexes; i++)
+				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
+			char *s = new_db_table_record(tbl->schema);
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				strcpy(s.subscription_id, k->valuestring);
+				set_db_table_record_field(tbl->schema, "subscription_id", k->valuestring, s);
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				strcpy(s.customer_id, k->valuestring);
+				set_db_table_record_field(tbl->schema, "customer_id", k->valuestring, s);
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				strcpy(s.product_type, k->valuestring);
-			subscription_txn_handler(j, tbl, index_list, index_cnt, 'i', &s, NULL);
+				set_db_table_record_field(tbl->schema, "product_type", k->valuestring, s);
+			subscription_txn_handler(j, tbl, 'i', s, NULL);
+			release_table_record(tbl->schema, s);
 			break;
 		case 'u': ;
 			break;
@@ -183,17 +160,6 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 		default: ;
 			// error message
 	}
-/*
-bool subscription_txn_handler(
-		journal_t *j,
-		table_t *tbl,
-		index_t **idxs,
-		uint8_t idxcnt,
-		char action,
-		subscription_t *subrec,
-		char *keyname
-)
- */
 
 	cJSON *r = cJSON_CreateObject();
 	cJSON_AddStringToObject(r, "message", "hello world");
@@ -202,334 +168,101 @@ bool subscription_txn_handler(
 	return rv;
 }
 
-void print_subscription_key(char *vk, char *dst) {
-	sprintf(dst, "%s (%" PRIu64 ")", ((idxsubidkey_t *)vk)->subscription_id, ((idxsubidkey_t *)vk)->record);
-}
-void print_customer_key(char *vk, char *dst) {
-	sprintf(dst, "%s (%" PRIu64 ")", ((idxcustidkey_t *)vk)->customer_id, ((idxcustidkey_t *)vk)->record);
-}
+bool find_subscription_by_id(
+		db_table_t *tbl,
+		db_index_t *subidx,
+		char *subscription_id,
+		char **subrec) {
 
-int compare_subscription_id (char *va, char *vb) {
-	idxsubidkey_t *a = (idxsubidkey_t *)va;
-	idxsubidkey_t *b = (idxsubidkey_t *)vb;
-
-	int rv = 0;
-
-	// if the order ids aren't equal return immediately
-	if ( (rv = strcmp(a->subscription_id, b->subscription_id)) != 0 )
-		return rv;
-
-	// if either record id is a max value pointer ignore the comparison further
-	if ( a->record == UINT64_MAX || b->record == UINT64_MAX )
-		return rv;
-
-	if ( a->record == b->record )
-		return 0;
-	else if ( a->record < b->record )
-		return -1;
-	else
-		return 1;
-}
-
-int compare_customer_id (char *va, char *vb) {
-	idxcustidkey_t *a = (idxcustidkey_t *)va;
-	idxcustidkey_t *b = (idxcustidkey_t *)vb;
-	//printf("%s vs %s\n", a->orderid, b->orderid);
-	int rv = 0;
-
-	// if the order ids aren't equal return immediately
-	if ( (rv = strcmp(a->customer_id, b->customer_id)) != 0 )
-		return rv;
-
-	// if either record id is a max value pointer ignore the comparison further
-	if ( a->record == UINT64_MAX || b->record == UINT64_MAX )
-		return rv;
-
-	if ( a->record == b->record )
-		return 0;
-	else if ( a->record < b->record )
-		return -1;
-	else
-		return 1;
-}
-
-char * create_subid_key(void) {
-	idxsubidkey_t *newkey = malloc(sizeof(idxsubidkey_t));
-	bzero(newkey, sizeof(idxsubidkey_t));
-	return (char *)newkey;
-}
-
-char * create_custid_key(void) {
-	idxcustidkey_t *newkey = malloc(sizeof(idxcustidkey_t));
-	bzero(newkey, sizeof(idxcustidkey_t));
-	return (char *)newkey;
-}
-
-void release_subid_key(char *rec) {
-	free(((idxsubidkey_t *)rec)->subscription_id);
-}
-
-void release_custid_key(char *rec) {
-	free(((idxcustidkey_t *)rec)->customer_id);
-}
-
-char *create_subid_key_from_record(char *rec) {
-	subscription_t *s = (subscription_t *)rec;
-	idxsubidkey_t *newkey = malloc(sizeof(idxsubidkey_t));
-	bzero(newkey, sizeof(idxsubidkey_t));
-	newkey->subscription_id = s->subscription_id;
-	return (char *)newkey;
-}
-
-char *create_custid_key_from_record(char *rec) {
-	subscription_t *s = (subscription_t *)rec;
-	idxcustidkey_t *newkey = malloc(sizeof(idxcustidkey_t));
-	bzero(newkey, sizeof(idxcustidkey_t));
-	newkey->customer_id = s->customer_id;
-	return (char *)newkey;
-}
-
-char * copy_subid_key(char *inkey, char *outkey) {
-	memcpy(outkey, inkey, sizeof(idxsubidkey_t));
-	((idxsubidkey_t *)outkey)->childnode = NULL;
-	return outkey;
-
-}
-
-char * copy_custid_key(char *inkey, char *outkey) {
-	memcpy(outkey, inkey, sizeof(idxcustidkey_t));
-	((idxcustidkey_t *)outkey)->childnode = NULL;
-	return outkey;
-
-}
-
-void set_subid_key_value(char *k, uint64_t v) {
-	((idxsubidkey_t *)k)->record = v;
-}
-
-void set_custid_key_value(char *k, uint64_t v) {
-	((idxcustidkey_t *)k)->record = v;
-}
-
-uint64_t get_subid_key_value(char *k) {
-	return ((idxsubidkey_t *)k)->record;
-}
-
-uint64_t get_custid_key_value(char *k) {
-	return ((idxcustidkey_t *)k)->record;
-}
-
-uint64_t add_subscription_record(table_t *tbl, char *newrec) {
-	subscription_t *sr = 0;
-	uint64_t slot = UINT64_MAX;
-	uint64_t cs = tbl->free_record_slot;
-
-	if ( cs < tbl->total_record_count && cs >= 0 ) {
-		//printf("Copying record to slot %" PRIu64 " in the table\n", tbl->free_slots[cs]);
-
-		slot = tbl->free_slots[cs];
-
-		sr = &((subscription_t *)tbl->data)[slot];
-		memcpy(sr, newrec, sizeof(subscription_t));
-
-		tbl->used_slots[slot] = cs;
-		tbl->free_slots[cs] = tbl->total_record_count;
-		tbl->free_record_slot = cs == 0 ? UINT64_MAX : cs - 1;
-	}
-	return slot;
-}
-
-bool delete_subscription_record(table_t *tbl, uint64_t slot, char *delrec) {
 	bool rv = false;
-	subscription_t *target;
+	char *subid = NULL;
+	dd_datafield_t *subfield = NULL;
+	db_indexkey_t *kp = NULL, *subkey = dbidx_allocate_key_with_data(subidx->idx_schema);
+	subkey->record = UINT64_MAX;
 
-	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX) {
-		target = &(((subscription_t *)tbl->data)[slot]);
-		if ( delrec != NULL )
-			memcpy(delrec, target, sizeof(subscription_t));
-		bzero(target, sizeof(subscription_t));
-
-		tbl->used_slots[slot] = UINT64_MAX;
-		tbl->free_record_slot++;
-		tbl->free_slots[tbl->free_record_slot] = slot;
-		rv = true;
+	for(uint8_t i = 0; i < subidx->idx_schema->num_fields; i++) {
+		if ( strcmp(subidx->idx_schema->fields[i]->field_name, "subscription_id") == 0 ) {
+			subfield = subidx->idx_schema->fields[i];
+			break;
+		}
 	}
+	if ( subfield == NULL )
+		return rv;
 
-	return rv;
-}
-
-char * read_subscription_record(table_t *tbl, uint64_t slot) {
-	subscription_t *rec = NULL;
-	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX) {
-		rec = &(((subscription_t *)tbl->data)[slot]);
-	}
-	return (char *)rec;
-}
-
-uint64_t add_subscription(
-		table_t *tbl,
-		index_t *subidx,
-		index_t *cusidx,
-		subscription_t *subrec) {
-
-	//printf("Adding subscription %s (%s) to the table\n", subrec->subscription_id, subrec->customer_id);
-	uint64_t rec_num = UINT64_MAX;
-	idxsubidkey_t subkey;
-	bzero(&subkey, sizeof(idxsubidkey_t));
-	subkey.subscription_id = subrec->subscription_id;
-	subkey.record = UINT64_MAX;
-
-	//printf("Finding node where %s is or belongs\n", subkey.subscription_id);
-	idxnode_t *idx_node = find_node(subidx, &subidx->root_node, (char *)&subkey);
-	if (find_record(subidx, idx_node, (char *)&subkey) != NULL ) {
-		return rec_num;
-	}
-
-	rec_num = (*tbl->add_record)(tbl, (char *)subrec);
-	//printf("Allocated record %"PRIu64"to table\n", rec_num);
-	subkey.record = rec_num;
-
-	char keyrec[64];
-	(*subidx->print_key)((char *)&subkey, keyrec);
-	//printf("Adding index key %s\n", keyrec);
-	add_index_value(subidx, idx_node, (char *)&subkey);
-
-	idxcustidkey_t custkey;
-	bzero(&custkey, sizeof(idxcustidkey_t));
-	custkey.customer_id = subrec->customer_id;
-	custkey.record = rec_num;
-
-	(*cusidx->print_key)((char *)&custkey, keyrec);
-	//printf("Adding index key %s\n", keyrec);
-	add_index_value(cusidx, &cusidx->root_node, (char *)&custkey);
-
-	return rec_num;
-}
-
-uint64_t del_subscription(
-		table_t *tbl,
-		index_t *subidx,
-		index_t *cusidx,
-		subscription_t *subrec) {
-	uint64_t rec_num = UINT64_MAX;
-
-	idxsubidkey_t subkey, *sk;
-	bzero(&subkey, sizeof(idxsubidkey_t));
-	subkey.subscription_id = subrec->subscription_id;
-	subkey.record = UINT64_MAX;
-
-	if ( (sk = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, (char *)&subkey)) == NULL )
-		return rec_num;
-
-	subscription_t dr;
-	bzero(&dr, sizeof(subscription_t));
-
-	rec_num = (uint64_t)((*subidx->get_key_value)((char *)sk));
-
-	(*tbl->delete_record)(tbl, rec_num, (char *)&dr);
-
-	idxcustidkey_t custkey;
-	bzero(&custkey, sizeof(idxcustidkey_t));
-	custkey.customer_id = dr.customer_id;
-	custkey.record = rec_num;
-
-	remove_index_value(subidx, &subidx->root_node, (char *)sk);
-	remove_index_value(cusidx, &cusidx->root_node, (char *)&custkey);
-
-	return rec_num;
-}
-
-bool find_subscription_by_id(table_t *tbl, index_t *subidx, char *subscription_id, subscription_t *subrec) {
-	idxsubidkey_t k, *kp;
-	bool rv = false;
-	bzero(&k, sizeof(k));
-	k.subscription_id = subscription_id;
-	k.record = UINT64_MAX;
-
-	if ((kp = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, (char *)&k)) != NULL) {
-		printf("Subscription %s found\n", subscription_id);
-		uint64_t slot = (uint64_t)((*subidx->get_key_value)((char *)kp));
-		subscription_t *fs = (subscription_t *)(*tbl->read_record)(tbl, slot);
-		memcpy(subrec, fs, sizeof(subscription_t));
-		rv = true;
+	subid = malloc(subfield->field_sz);
+	bzero(subid, subfield->field_sz);
+	strcpy(subid, subscription_id);
+	dbidx_set_key_field_value(subidx->idx_schema, "subscription_id", subkey, subid);
+	if ((kp = dbidx_find_record(subidx->idx_schema, subidx->root_node, subkey)) != NULL) {
+		if ( (*subrec = read_db_table_record(tbl->mapped_table, kp->record)) == NULL )
+			fprintf(stderr, "Error while reading %s from slot %" PRIu64 "\n", subscription_id, kp->record);
+		else
+			rv = true;
 	} else {
 		printf("Subscription %s not found\n", subscription_id);
 	}
-	return rv;
-}
-
-uint64_t find_subscription_slot(table_t *tbl, index_t *subidx, subscription_t *subrec) {
-	uint64_t rv = UINT64_MAX;
-
-	idxsubidkey_t k, *kp;
-	bzero(&k, sizeof(k));
-	k.subscription_id = subrec->subscription_id;
-	k.record = UINT64_MAX;
-
-	if ((kp = (idxsubidkey_t *)find_record(subidx, &subidx->root_node, (char *)&k)) != NULL)
-		rv = (uint64_t)((*subidx->get_key_value)((char *)kp));
-
+	free(subid);
+	free(subkey);
 	return rv;
 }
 
 bool subscription_txn_handler(
 		journal_t *j,
-		table_t *tbl,
-		index_t **idxs,
-		uint8_t idxcnt,
+		db_table_t *tbl,
 		char action,
-		subscription_t *subrec,
+		char *subrec,
 		char *keyname
 	) {
+
+	if ( tbl->free_record_slot == UINT64_MAX) {
+		fprintf(stderr, "ERR: writing to table %s, table is full\n", tbl->table_name);
+		return false;
+	}
 
 	char msg[128];
 
 	bool rv = false;
-	index_t *uq_idx = NULL;
 	journal_record_t jr;
+	db_index_t *uq_idx = NULL, *idx = NULL;
 
 	bzero(&jr, sizeof(journal_record_t));
-	jr.msgsz = sizeof(journal_record_t) + sizeof(subscription_t);
+	jr.msgsz = sizeof(journal_record_t) + tbl->schema->record_size;
 	strcpy(jr.objname, tbl->table_name);
-	jr.objsz = sizeof(subscription_t);
-	jr.objdata = (void *)subrec;
+	jr.objsz = sizeof(tbl->schema->record_size);
+	jr.objdata = subrec;
 
-	//printf("Operation %c for sub %s/%s\n", action, subrec->subscription_id, subrec->customer_id);
-	//printf("Table %s\n", tbl->table_name);
-	for(int i=0; i < idxcnt; i++) {
-		//printf("Index %s%s\n", idxs[i]->index_name, idxs[i]->is_unique ? " (unique)" : "");
-		if ( keyname != NULL && strcmp(keyname, idxs[i]->index_name) == 0 && idxs[i]->is_unique )
-			uq_idx = idxs[i];
-		else if ( keyname == NULL && idxs[i]->is_unique && uq_idx == NULL )
-			uq_idx = idxs[i];
+	if( keyname != NULL && (idx = find_db_index(tbl, keyname)) != NULL && idx->idx_schema->is_unique )
+		uq_idx = idx;
+	else if ( keyname != NULL )
+		fprintf(stderr, "Key %s is not a candidate for a unique search\n", keyname);
+
+	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+		idx = tbl->indexes[i];
+		if ( idx->idx_schema->is_unique && uq_idx == NULL )
+			uq_idx = idx;
 	}
 
+	/* TODO find all unique indexes and check that none of them have been violated */
+	db_indexkey_t *key = NULL;
 	if ( uq_idx == NULL ) {
 		fprintf(stderr, "Unique key could not be identified\n");
 		return rv;
 	} else {
+		//printf("Using unique key %s for lookups\n", uq_idx->index_name);
+		key = create_key_from_record_data(tbl->schema, uq_idx->idx_schema, subrec);
+		key->record = UINT64_MAX;
 		strcpy(jr.objkey, uq_idx->index_name);
 	}
 
-
-	void *key = NULL;
-	if ( uq_idx != NULL ) {
-		key = (*uq_idx->create_record_key)((void *)subrec);
-		((indexkey_t *)key)->record = UINT64_MAX;
-	} else {
-		strcpy(jr.objkey, uq_idx->index_name);
-	}
-
-	void *k = NULL;
+	db_indexkey_t *k = NULL;
 	bool txn_valid = false;
 
 	switch (action) {
 		case 'i': ;
 			jr.objtype = action;
-
 			if ( uq_idx != NULL ) {
-				if ( (k = find_record(uq_idx, &uq_idx->root_node, key)) != NULL ) {
-					(*uq_idx->print_key)(k, msg);
+				if ( (k = dbidx_find_record(uq_idx->idx_schema, uq_idx->root_node, key)) != NULL ) {
+					idx_key_to_str(uq_idx->idx_schema, k, msg);
 					fprintf(stderr, "ERR: Duplicate record %s\n", msg);
 				} else
 					txn_valid = true;
@@ -538,24 +271,18 @@ bool subscription_txn_handler(
 
 			if ( txn_valid ) {
 				uint64_t recnum = UINT64_MAX;
-				if ( (recnum = add_subscription_record(tbl, (char *)subrec)) < UINT64_MAX ) {
-					subscription_t *newrec = (subscription_t *)read_subscription_record(tbl, recnum);
-
-					for(int i=0; i < idxcnt; i++) {
-						k = (*idxs[i]->create_record_key)((void *)newrec);
-						(*idxs[i]->set_key_value)(k, recnum);
-						add_index_value(idxs[i], &idxs[i]->root_node, k);
-						free(k);
-						k = NULL;
+				if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) < UINT64_MAX ) {
+					char *newrec = read_db_table_record(tbl->mapped_table, recnum);
+					for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+						db_indexkey_t *newkey = create_key_from_record_data(tbl->schema, tbl->indexes[i]->idx_schema, newrec);
+						newkey->record = recnum;
+						dbidx_add_index_value(tbl->indexes[i], NULL, newkey);
+						free(newkey);
 					}
 					write_journal_record(j, &jr);
-
-					rv = true;
 				} else {
-					if ( tbl->free_record_slot == UINT64_MAX)
-						fprintf(stderr, "ERR: writing to table %s, table is full\n", tbl->table_name);
-					else
-						fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
+					fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
+					return false;
 				}
 			}
 			break;
@@ -571,23 +298,30 @@ bool subscription_txn_handler(
 			fprintf(stderr, "Unknown txn action %c\n", action);
 	}
 
-	if( uq_idx != NULL )
+	if( key != NULL )
 		free(key);
-	return rv;
+
+	return true;
 }
 
 void load_subs_from_file(
 			char *filename,
-			table_t *tbl,
-			index_t **idxs,
-			uint8_t idxcnt,
+			db_table_t *tbl,
 			journal_t *j
 		) {
 	uint64_t rec_count = 0;
-	char line[1024], *l, *field, *t = NULL, *delim = "\t"; // tab
+	char subid[32], line[1024], *l, *field, *t = NULL, *delim = "\t"; // tab
+	unsigned int projectid[3];
+	bzero(&subid, sizeof(subid));
 	bzero(line, sizeof(line));
 	uint8_t field_num = 0;
-	subscription_t addsub;
+
+	bool sub_bool;
+	uint32_t sub_u32;
+	uint16_t sub_u16;
+	struct timespec sub_timestamp;
+
+	char *addsub = new_db_table_record(tbl->schema);
 
 	journal_sync_off(j);
 
@@ -597,75 +331,100 @@ void load_subs_from_file(
 		if (l[strlen(l) - 1] == '\n')
 			l[strlen(l) - 1] = '\0';
 
-		bzero(&addsub, sizeof(subscription_t));
+		bzero(addsub, tbl->schema->record_size);
 		field_num = 0;
 		field = strtok_r(l, delim, &t);
 		do {
 			switch (field_num) {
 				case 0: // subscription_id
-					strcpy(addsub.subscription_id, field);
+					strcpy(subid, field);
+					set_db_table_record_field(tbl->schema, "subscription_id", field, addsub);
 					break;
 				case 1: // valid_from
 					break;
 				case 2: // customer_id
-					strcpy(addsub.customer_id, field);
+					set_db_table_record_field(tbl->schema, "customer_id", field, addsub);
 					break;
 				case 3: // project_id
+					if ( strncmp(field, "\\\\x", sizeof(char)*3) == 0 && strlen(field+3) == 24) {
+						char *projectidstr = field + 3;
+
+						bzero(&projectid, sizeof(projectid));
+						sscanf(projectidstr, "%08X%08X%08X",
+								&projectid[0], &projectid[1], &projectid[2]
+						);
+						for(int i = 0; i < 3; i++)
+							projectid[i] = htonl(projectid[i]);
+						set_db_table_record_field(tbl->schema, "project_id", (char *)&projectid, addsub);
+					}
 					break;
 				case 4: // is_active
-					addsub.is_active = strcmp(field, "t") == 0 ? true : false;
+					sub_bool = strcmp(field, "t") == 0 ? true : false;
+					set_db_table_record_field(tbl->schema, "is_active", (char *)&sub_bool, addsub);
 					break;
 				case 5: // product
-					strcpy(addsub.product_type, field);
+					set_db_table_record_field(tbl->schema, "product_type", field, addsub);
 					break;
 				case 6: // plan
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.plan_id, field);
+						set_db_table_record_field(tbl->schema, "plan_id", field, addsub);
 					break;
 				case 7: // deferred plan
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.deferred_plan_id, field);
+						set_db_table_record_field(tbl->schema, "deferred_plan_id", field, addsub);
 					break;
 				case 8: // currency
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.currency, field);
+						set_db_table_record_field(tbl->schema, "currency", field, addsub);
 					break;
 				case 9: // plan_price
-					addsub.plan_price = atoi(field);
+					sub_u32 = atoi(field);
+					set_db_table_record_field(tbl->schema, "plan_price", (char *)&sub_u32, addsub);
 					break;
 				case 10: // quantity
-					addsub.quantity = atoi(field);
+					sub_u16 = atoi(field);
+					set_db_table_record_field(tbl->schema, "quantity", (char *)&sub_u16, addsub);
 					break;
 				case 11: // term_start
-					if ( strlen(field) > 0 )
-						parse_timestamp(field, &addsub.term_start);
+					if ( strlen(field) > 0 ) {
+						parse_utc_timestamp(field, &sub_timestamp);
+						//parse_timestamp(field, &sub_timestamp);
+						set_db_table_record_field(tbl->schema, "term_start", (char *)&sub_timestamp, addsub);
+					}
 					break;
 				case 12: // term_end
-					if ( strlen(field) > 0 )
-						parse_timestamp(field, &addsub.term_end);
+					if ( strlen(field) > 0 ) {
+						parse_utc_timestamp(field, &sub_timestamp);
+						//parse_timestamp(field, &sub_timestamp);
+						set_db_table_record_field(tbl->schema, "term_end", (char *)&sub_timestamp, addsub);
+					}
 					break;
 				case 13: // autorenew - this can have nulls
-					addsub.autorenew = strcmp(field, "t") == 0 ? true : false;
+					sub_bool = strcmp(field, "t") == 0 ? true : false;
+					set_db_table_record_field(tbl->schema, "autorenew", (char *)&sub_bool, addsub);
 					break;
 				case 14: // canceled at
-					if ( strlen(field) > 0 )
-						parse_timestamp(field, &addsub.canceled_at);
+					if ( strlen(field) > 0 ) {
+						parse_utc_timestamp(field, &sub_timestamp);
+						//parse_timestamp(field, &sub_timestamp);
+						set_db_table_record_field(tbl->schema, "canceled_at", (char *)&sub_timestamp, addsub);
+					}
 					break;
 				case 15: // status
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.status, field);
+						set_db_table_record_field(tbl->schema, "status", field, addsub);
 					break;
 				case 16: // external ref
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.external_reference, field);
+						set_db_table_record_field(tbl->schema, "external_reference", field, addsub);
 					break;
 				case 17: // lifecycle
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.subscription_lifecycle, field);
+						set_db_table_record_field(tbl->schema, "subscription_lifecycle", field, addsub);
 					break;
 				case 18: // churn
 					if ( strcmp(field, "\\N") != 0 )
-						strcpy(addsub.churn_type, field);
+						set_db_table_record_field(tbl->schema, "churn_type", field, addsub);
 					break;
 				//default:
 				//	printf("%"PRIu8": %s\n", field_num, field);
@@ -676,8 +435,8 @@ void load_subs_from_file(
 		} while (field != NULL);
 		bzero(line, sizeof(line));
 
-		//printf("Adding sub %s...", addsub.subscription_id);
-		subscription_txn_handler(j, tbl, idxs, 2, 'i', &addsub, NULL);
+		//printf("Adding sub %s...", subid);
+		subscription_txn_handler(j, tbl, 'i', addsub, NULL);
 		rec_count++;
 		//printf("successfully added\n");
 
@@ -685,86 +444,76 @@ void load_subs_from_file(
 			printf("Added %" PRIu64 " records to the table\n", rec_count);
 	}
 	gzclose(gzfd);
+	free(addsub);
 	printf("Added %" PRIu64 " records to the table\n", rec_count);
 	journal_sync_on(j);
 }
 
 int main (int argc, char **argv) {
-	char timestr[31];
-	int counter;
-
-	// https://stackoverflow.com/questions/6187908/is-it-possible-to-dynamically-define-a-struct-in-c
-	init_common();
+	int errs = 0;
+	uint64_t counter = 0;
+	char c;
+	char *dd_filename = NULL, *datafile = NULL;
+	data_dictionary_t **data_dictionary = NULL;
 
 	struct timespec start_tm, end_tm;
 	struct Server app_server;
 
-	subscription_t s;
+	while ((c = getopt(argc, argv, "d:f:")) != -1) {
+		switch(c) {
+		case 'd': ;
+		dd_filename = optarg;
+			break;
+		case 'f': ;
+		datafile = optarg;
+			break;
+		case ':': ;
+			fprintf(stderr, "Option -%c requires an option\n", optopt);
+			errs++;
+			break;
+		case '?': ;
+			fprintf(stderr, "Unknown option '-%c'\n", optopt);
+		}
+	}
+
+	if ( dd_filename != NULL ) {
+		if ( (data_dictionary = build_dd_from_json(dd_filename)) == NULL ) {
+			fprintf(stderr, "Error while building data dictionary from file %s\n", dd_filename);
+			errs++;
+		}
+	} else {
+		errs++;
+		fprintf(stderr, "Option -d <data dictionary> is required\n");
+	}
+
+	if ( errs > 0 )
+		exit(EXIT_FAILURE);
+
+	display_data_dictionary(data_dictionary);
+
+
+	if ( !load_all_dd_tables(*data_dictionary) )
+		exit(EXIT_FAILURE);
+	printf("All lables opened\n");
+
+	/* sets up regular expressions for parsing time */
+	init_common();
 
 	journal_t jnl;
 	bzero(&jnl, sizeof(journal_t));
 
 	float time_diff;
-	table_t subs_table;
-	table_t *st;
 
-	index_t subid_idx;
-	index_t custid_idx;
-
-	index_t *index_list[2];
-	index_list[0] = &subid_idx;
-	index_list[1] = &custid_idx;
-	uint8_t index_cnt = 2;
-
-	bzero(&subs_table, sizeof(table_t));
-	subs_table.header_size = sizeof(table_t);
-	subs_table.record_size = sizeof(subscription_t);
-	subs_table.total_record_count = NUM_SUBSCRIPTIONS;
-	strcpy(subs_table.table_name, "subscriptions");
-	subs_table.add_record = &add_subscription_record;;
-	subs_table.delete_record = &delete_subscription_record;
-	subs_table.read_record = &read_subscription_record;
-
-	bzero(&subid_idx, sizeof(index_t));
-	strcpy(subid_idx.index_name, "subscription_id_idx_uq");
-	subid_idx.record_size = sizeof(idxsubidkey_t);
-	subid_idx.is_unique = true;
-	init_index_node(&subid_idx.root_node);
-	subid_idx.compare_key = &compare_subscription_id;
-	subid_idx.create_key = &create_subid_key;
-	subid_idx.create_record_key = &create_subid_key_from_record;
-	subid_idx.copy_key = &copy_subid_key;
-	subid_idx.set_key_value = &set_subid_key_value;
-	subid_idx.get_key_value = &get_subid_key_value;
-	subid_idx.print_key = &print_subscription_key;
-
-	bzero(&custid_idx, sizeof(index_t));
-	strcpy(custid_idx.index_name, "customer_id_idx");
-	custid_idx.record_size = sizeof(idxcustidkey_t);
-	custid_idx.is_unique = false;
-	init_index_node(&custid_idx.root_node);
-	custid_idx.compare_key = &compare_customer_id;
-	custid_idx.create_key = &create_custid_key;
-	custid_idx.create_record_key = &create_custid_key_from_record;
-	custid_idx.copy_key = &copy_custid_key;
-	custid_idx.set_key_value = &set_custid_key_value;
-	custid_idx.get_key_value = &get_custid_key_value;
-	custid_idx.print_key = &print_subscription_key;
-
-	open_table(&subs_table, &st);
-	printf("Table opened\n");
-
-	read_index_from_record_numbers(st, &subid_idx);
-	read_index_from_record_numbers(st, &custid_idx);
-
+	db_table_t *tbl = find_db_table(data_dictionary, "subscriptions");
+	load_dd_index_from_table(tbl);
 	printf("Indexes loaded\n");
 
 	new_journal(&jnl);
 
 	//del_subscription(st, &subid_idx, &custid_idx, &s);
 
-	if ( argc == 2 )
-		load_subs_from_file(argv[1], st, index_list, 2, &jnl);
+	if ( datafile != NULL )
+		load_subs_from_file(datafile, tbl, &jnl);
 
 	bzero(&app_server, sizeof(struct Server));
 
@@ -794,9 +543,7 @@ int main (int argc, char **argv) {
 	subscription_handler.handler_argc = 4;
 	subscription_handler.handler_argv = malloc(sizeof(void *) * subscription_handler.handler_argc);
 	subscription_handler.handler_argv[0] = &jnl;
-	subscription_handler.handler_argv[1] = st;
-	subscription_handler.handler_argv[2] = &index_cnt;
-	subscription_handler.handler_argv[3] = index_list;
+	subscription_handler.handler_argv[1] = tbl;
 
 	handlers.num_handlers++;
 	handlers.handlers = realloc(handlers.handlers, sizeof(void *) * handlers.num_handlers);
@@ -805,114 +552,69 @@ int main (int argc, char **argv) {
 	start_application(&handlers);
 
 	printf("Subscription Index:\n");
-	counter = 0;
-	print_tree_totals(&subid_idx, &subid_idx.root_node, &counter);
-	counter = 0;
-	//print_tree(&subid_idx, &subid_idx.root_node, &counter);
-	printf("Customer Id Index:\n");
-	counter = 0;
-	print_tree_totals(&custid_idx, &custid_idx.root_node, &counter);
-	counter = 0;
-	//print_tree(&custid_idx, &custid_idx.root_node, &counter);
+	db_index_t *idx = NULL;
+	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+		idx = tbl->indexes[i];
+		printf("Index: %s\n", idx->index_name);
+		counter = 0;
+		dbidx_print_tree_totals(idx, NULL, &counter);
+		//counter = 0;
+		//dbidx_print_tree(idx, NULL, &counter);
+	}
 
-	idxcustidkey_t c;
-	bzero(&c, sizeof(idxcustidkey_t));
-	c.customer_id = "cus_DLr1bFxFbQzbdS";
-	c.record = UINT64_MAX;
+	db_index_t *subidx = find_db_index(tbl, "subscription_id_idx_uq");
+	db_indexkey_t *subkey = dbidx_allocate_key_with_data(subidx->idx_schema);
+	dbidx_set_key_field_value(subidx->idx_schema, "subscription_id", subkey, "su_0k77ufeRLJyzXp");
+	subkey->record = UINT64_MAX;
 
-	bzero(&s, sizeof(subscription_t));
+	db_index_t *custidx = find_db_index(tbl, "customer_id_idx");
+	db_indexkey_t *custkey = dbidx_allocate_key_with_data(custidx->idx_schema);
+	dbidx_set_key_field_value(custidx->idx_schema, "customer_id", custkey, "cus_DLr1bFxFbQzbdS");
+	custkey->record = UINT64_MAX;
 
-	idxsubidkey_t k;
-	bzero(&k, sizeof(idxsubidkey_t));
-	k.subscription_id = "sub_PcHdKYt3rmiBNl";
-	k.record = UINT64_MAX;
-
-	print_index_scan_lookup(&subid_idx, (char *)&k);
+	dbidx_print_index_scan_lookup(subidx, subkey);
 
 	clock_gettime(CLOCK_REALTIME, &start_tm);
-	if ( find_subscription_by_id(st, &subid_idx, "su_1PNT9d6ahvCu8Z", &s) ) {
+
+	char *s = NULL;
+
+	if ( find_subscription_by_id(tbl, subidx, "su_0k4aUCpOeZhysU", &s) ) {
 		clock_gettime(CLOCK_REALTIME, &end_tm);
 		time_diff = end_tm.tv_sec - start_tm.tv_sec;
 		time_diff += (end_tm.tv_nsec / 1000000000.0) - (start_tm.tv_nsec / 1000000000.0);
 		printf("Lookup was %fus\n", time_diff * 1000000.0);
 
-		printf("subscription_id: %s\n", s.subscription_id);
-		printf("customer_id: %s\n", s.customer_id);
-		printf("product_type: %s\n", s.product_type);
-		printf("plan_id: %s\n", s.plan_id);
-		printf("currency: %s\n", s.currency);
-		printf("plan_price: %d\n", s.plan_price);
-		printf("quantity: %d\n", s.quantity);
-		format_timestamp(&s.term_start, timestr);
-		printf("term start: %s\n", timestr);
-		format_timestamp(&s.term_end, timestr);
-		printf("term end: %s\n", timestr);
-		printf("status: %s\n", s.status);
-		printf("external_reference: %s\n", s.external_reference);
-		printf("lifecycle: %s\n", s.subscription_lifecycle);
-		printf("churn_type: %s\n", s.churn_type);
+		db_table_record_print(tbl->schema, s);
 	}
 
-	bzero(&s, sizeof(subscription_t));
 	clock_gettime(CLOCK_REALTIME, &start_tm);
-	if ( find_subscription_by_id(st, &subid_idx, "sub_Gaeu53lByWsOWk", &s) ) {
+	if ( find_subscription_by_id(tbl, subidx, "sub_Gaeu53lByWsOWk", &s) ) {
 		clock_gettime(CLOCK_REALTIME, &end_tm);
 		time_diff = end_tm.tv_sec - start_tm.tv_sec;
 		time_diff += (end_tm.tv_nsec / 1000000000.0) - (start_tm.tv_nsec / 1000000000.0);
 		printf("Lookup was %fus\n", time_diff * 1000000.0);
 
-		printf("subscription_id: %s\n", s.subscription_id);
-		printf("customer_id: %s\n", s.customer_id);
-		printf("product_type: %s\n", s.product_type);
-		printf("plan_id: %s\n", s.plan_id);
-		printf("currency: %s\n", s.currency);
-		printf("plan_price: %d\n", s.plan_price);
-		printf("quantity: %d\n", s.quantity);
-		format_timestamp(&s.term_start, timestr);
-		printf("term start: %s\n", timestr);
-		format_timestamp(&s.term_end, timestr);
-		printf("term end: %s\n", timestr);
-		printf("status: %s\n", s.status);
-		printf("external_reference: %s\n", s.external_reference);
-		printf("lifecycle: %s\n", s.subscription_lifecycle);
-		printf("churn_type: %s\n", s.churn_type);
+		db_table_record_print(tbl->schema, s);
 	}
 
-	bzero(&s, sizeof(subscription_t));
 	clock_gettime(CLOCK_REALTIME, &start_tm);
-	if ( find_subscription_by_id(st, &subid_idx, "su_2gjAMOQfjVI58E", &s) ) {
+	if ( find_subscription_by_id(tbl, subidx, "su_2gjAMOQfjVI58E", &s) ) {
 		clock_gettime(CLOCK_REALTIME, &end_tm);
 		time_diff = end_tm.tv_sec - start_tm.tv_sec;
 		time_diff += (end_tm.tv_nsec / 1000000000.0) - (start_tm.tv_nsec / 1000000000.0);
 		printf("Lookup was %fus\n", time_diff * 1000000.0);
 
-		printf("subscription_id: %s\n", s.subscription_id);
-		printf("customer_id: %s\n", s.customer_id);
-		printf("product_type: %s\n", s.product_type);
-		printf("plan_id: %s\n", s.plan_id);
-		printf("currency: %s\n", s.currency);
-		printf("plan_price: %d\n", s.plan_price);
-		printf("quantity: %d\n", s.quantity);
-		format_timestamp(&s.term_start, timestr);
-		printf("term start: %s\n", timestr);
-		format_timestamp(&s.term_end, timestr);
-		printf("term end: %s\n", timestr);
-		printf("status: %s\n", s.status);
+		db_table_record_print(tbl->schema, s);
 	}
 
-	printf("Closing table\n");
-	close_table(st);
+	free(subkey);
+	free(custkey);
 
-	printf("Flushing indexes\n");
-	for(counter = 0; counter < 2; counter++)
-		write_record_numbers_from_index(index_list[counter]);
-
-	printf("Releasing indexes\n");
-	for(counter = 0; counter < 2; counter++)
-		release_tree(index_list[counter], &(index_list[counter])->root_node);
+	printf("Closing tables\n");
+	close_all_dd_tables(*data_dictionary);
 
 	close_journal(&jnl);
-
+	printf("Releasing common resources\n");
 	cleanup_common();
 
 	for(counter = 0; counter < handlers.num_handlers; counter++) {
@@ -921,6 +623,7 @@ int main (int argc, char **argv) {
 	}
 	free(handlers.handlers);
 
+	release_data_dictionary(data_dictionary);
 	printf("Done\n");
 	exit(EXIT_SUCCESS);
 }
