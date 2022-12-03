@@ -929,6 +929,9 @@ signed char dbidx_compare_keys(db_index_schema_t *idx, db_indexkey_t *keya, db_i
 		case I8:
 			rv = i8_compare((int8_t *)keya->data[i], (int8_t *)keyb->data[i]);
 			break;
+		case BYTES:
+			rv = bytes_compare((unsigned char *)keya->data[i], (unsigned char *)keyb->data[i], idx->fields[i]->field_sz);
+			break;
 		default:
 			rv = -2;
 		}

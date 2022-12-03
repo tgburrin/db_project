@@ -2,7 +2,7 @@
 	"fields": {
 		"subscription_id":        { "type": "STR", "size": 18 },
 		"customer_id":            { "type": "STR", "size": 18 },
-		"project_id":             { "type": "STR", "size": 12 },
+		"project_id":             { "type": "BYTES", "size": 12 },
 		"is_active":              { "type": "BOOL" },
 		"product_type":           { "type": "STR", "size": 16 },
 		"plan_id":                { "type": "STR", "size": 128 },

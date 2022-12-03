@@ -9,6 +9,7 @@
  */
 
 #include <unistd.h>
+#include <arpa/inet.h>
 
 #include <zlib.h>
 
@@ -310,6 +311,7 @@ void load_subs_from_file(
 		) {
 	uint64_t rec_count = 0;
 	char subid[32], line[1024], *l, *field, *t = NULL, *delim = "\t"; // tab
+	unsigned int projectid[3];
 	bzero(&subid, sizeof(subid));
 	bzero(line, sizeof(line));
 	uint8_t field_num = 0;
@@ -344,6 +346,17 @@ void load_subs_from_file(
 					set_db_table_record_field(tbl->schema, "customer_id", field, addsub);
 					break;
 				case 3: // project_id
+					if ( strncmp(field, "\\\\x", sizeof(char)*3) == 0 && strlen(field+3) == 24) {
+						char *projectidstr = field + 3;
+
+						bzero(&projectid, sizeof(projectid));
+						sscanf(projectidstr, "%08X%08X%08X",
+								&projectid[0], &projectid[1], &projectid[2]
+						);
+						for(int i = 0; i < 3; i++)
+							projectid[i] = htonl(projectid[i]);
+						set_db_table_record_field(tbl->schema, "project_id", (char *)&projectid, addsub);
+					}
 					break;
 				case 4: // is_active
 					sub_bool = strcmp(field, "t") == 0 ? true : false;

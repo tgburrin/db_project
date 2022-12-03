@@ -415,6 +415,8 @@ dd_datafield_t *init_dd_field_str(char *field_name, char *type, uint8_t size) {
 			field_type = UI8;
 		else
 			return NULL;
+	else if (strcmp(type, "BYTES") == 0)
+		field_type = BYTES;
 	else
 		return NULL;
 
@@ -468,6 +470,10 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 		break;
 	case BOOL:
 		sprintf(str, "%s", *(bool *)data == true ? "true" : "false");
+		break;
+	case BYTES:
+		for(uint32_t i = 0; i < field->field_sz; i++)
+			sprintf(str + i * 2, "%02x", ((unsigned char *)data)[i]);
 		break;
 	default:
 		break;
@@ -573,6 +579,10 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 	case I8:
 		size = sizeof(int8_t);
 		break;
+
+	case BYTES:
+		size = sizeof(unsigned char) * size;
+		break;
 	default:
 		break;
 	}
@@ -660,6 +670,16 @@ signed char i8_compare(int8_t *a, int8_t *b) {
 }
 signed char ui8_compare(uint8_t *a, uint8_t *b) {
 	return *a == *b ? 0 : *a > *b ? 1 : -1;
+}
+
+signed char bytes_compare(const unsigned char *a, const unsigned char *b, size_t n) {
+	for(size_t i = 0; i < n; i++) {
+		if ( a[i] > b[i])
+			return 1;
+		else if ( a[i] < b[i])
+			return -1;
+	}
+	return 0;
 }
 
 signed char ts_compare (struct timespec *ts1, struct timespec *ts2) {

@@ -157,6 +157,8 @@ signed char ui16_compare (uint16_t *, uint16_t *);
 signed char i8_compare (int8_t *, int8_t *);
 signed char ui8_compare (uint8_t *, uint8_t *);
 
+signed char bytes_compare(const unsigned char *, const unsigned char *, size_t);
+
 signed char ts_compare (struct timespec *, struct timespec *);
 
 #endif /* DATA_DICTIONARY_H_ */
