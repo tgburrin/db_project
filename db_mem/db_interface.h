@@ -16,9 +16,6 @@
 
 #include "utils.h"
 
-void read_index_from_record_numbers(table_t *tbl, index_t *idx);
-void write_record_numbers_from_index(index_t *idx);
-
 bool load_database (data_dictionary_t *);
 
 bool load_all_dd_tables(data_dictionary_t *);
