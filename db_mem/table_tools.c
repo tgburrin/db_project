@@ -256,8 +256,21 @@ void release_table_record(dd_table_schema_t *tbl, char *record) {
 bool set_db_table_record_field(dd_table_schema_t *tbl, char *field_name, char *value, char *data) {
 	size_t offset = 0;
 	bool found = false;
-	for(uint8_t i = 0; i < tbl->num_fields; i++) {
+	for(uint8_t i = 0; i < tbl->num_fields && !found; i++) {
 		if ( strcmp(tbl->fields[i]->field_name, field_name) == 0 ) {
+			found = true;
+			memcpy(data + offset, value, tbl->fields[i]->field_sz);
+		} else
+			offset += tbl->fields[i]->field_sz;
+	}
+	return found;
+}
+
+bool set_db_table_record_field_num(dd_table_schema_t *tbl, uint8_t pos, char *value, char *data) {
+	size_t offset = 0;
+	bool found = false;
+	for(uint8_t i = 0; !found && i <= pos && i < tbl->num_fields; i++) {
+		if ( i == pos ) {
 			found = true;
 			memcpy(data + offset, value, tbl->fields[i]->field_sz);
 		} else

@@ -26,7 +26,7 @@
 	},
 	"tables": {
 		"subscriptions": {
-			"size": 15000000,
+			"size": 50,
 			"fields": [
 				"subscription_id",
 				"customer_id",
@@ -50,17 +50,27 @@
 			"indexes": {
 				"subscription_id_idx_uq": {
 					"unique": true,
-					"order": 23,
+					"order": 13,
 					"fields": ["subscription_id"]
-				},
-				"customer_id_idx": {
-					"unique": false,
-					"order": 15,
-					"fields": ["customer_id"]
 				},
 				"project_id_idx": {
 					"unique": false,
 					"fields": ["project_id"]
+				}
+			}
+		},
+		"test_table": {
+			"size": 10,
+			"fields": [
+				"record_id",
+				"created_dt",
+				"record_msg",
+				"record_counter"
+			],
+			"indexes": {
+				"record_id_idx_uq": {
+					"unique": true,
+					"fields": ["record_id"]
 				}
 			}
 		}

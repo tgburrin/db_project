@@ -7,9 +7,9 @@
 
 #include "db_interface.h"
 
-uint64_t add_db_record(db_table_t *tbl, char *record) {
-	uint64_t rv = add_db_table_record(tbl, record);
-	return rv;
+bool add_db_record(db_table_t *tbl, char *record, uint64_t *rv) {
+	*rv = add_db_table_record(tbl, record);
+	return *rv == UINT64_MAX ? false : true;
 }
 
 bool load_all_dd_tables(data_dictionary_t *dd) {
@@ -55,18 +55,16 @@ bool load_dd_index_from_table(db_table_t *tbl) {
 	return true;
 }
 
-char * read_db_record(db_table_t *tbl, uint64_t slot) {
-	char *record = read_db_table_record(tbl, slot);
-	return record;
+bool read_db_record(db_table_t *tbl, uint64_t slot, char **record) {
+	*record = read_db_table_record(tbl, slot);
+	return *record == NULL ? false : true;
 }
 
-bool delete_db_record(db_table_t *tbl, char *record, char *deleted_record) {
+bool delete_db_record(db_table_t *tbl, uint64_t slot, char **deleted_record) {
 	if ( tbl == NULL )
 		return false;
-	if ( record == NULL )
-		return false;
 
-	bool rv = delete_db_table_record(tbl, 0, deleted_record);
+	bool rv = delete_db_table_record(tbl, slot, *deleted_record);
 	return rv;
 }
 
@@ -74,7 +72,8 @@ void set_key_from_record_slot(db_table_t *tbl, uint64_t slot, db_index_schema_t 
 	if ( key == NULL )
 		return;
 
-	char *record = read_db_record(tbl->mapped_table, slot);
+	char *record = NULL;
+	read_db_record(tbl->mapped_table, slot, &record);
 	if ( record == NULL )
 		return;
 

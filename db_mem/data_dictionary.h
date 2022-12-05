@@ -119,6 +119,9 @@ typedef struct DataDictionary {
 
 data_dictionary_t **init_data_dictionary(uint32_t, uint32_t, uint32_t);
 data_dictionary_t **build_dd_from_json(char *);
+data_dictionary_t **build_dd_from_dat(char *);
+void print_data_dictionary(data_dictionary_t *);
+bool write_data_dictionary_dat(data_dictionary_t *, char *);
 void release_data_dictionary(data_dictionary_t **);
 char *read_dd_json_file(char *);
 dd_table_schema_t *init_dd_schema(char *, uint8_t);
@@ -131,7 +134,7 @@ const char *map_enum_to_name(datatype_t);
 void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
 bool dd_type_to_str(dd_datafield_t *, char *, char *);
 
-int add_dd_table(data_dictionary_t **, db_table_t *);
+int add_dd_table(data_dictionary_t **, db_table_t *, db_table_t **);
 int add_dd_schema(data_dictionary_t **, dd_table_schema_t *, dd_table_schema_t **);
 int add_dd_field(data_dictionary_t **, dd_datafield_t *);
 

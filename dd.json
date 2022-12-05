@@ -26,7 +26,7 @@
 	},
 	"tables": {
 		"subscriptions": {
-			"size": 50,
+			"size": 15000000,
 			"fields": [
 				"subscription_id",
 				"customer_id",
@@ -52,10 +52,9 @@
 					"unique": true,
 					"fields": ["subscription_id"]
 				},
-				"customer_id_idx": {
+				"project_id_idx": {
 					"unique": false,
-					"order": 15,
-					"fields": ["customer_id"]
+					"fields": ["project_id"]
 				}
 			}
 		}
