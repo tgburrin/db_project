@@ -1,6 +1,6 @@
 {
 	"handler": "admin_functions",
-	"operation": "",
+	"operation": "c",
 	"operation_flags": [],
 	"lookup_index": "",
 	"data" : {

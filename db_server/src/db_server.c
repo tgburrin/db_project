@@ -13,101 +13,65 @@
 
 #include <zlib.h>
 
-#include "table_tools.h"
-#include "index_tools.h"
-#include "journal_tools.h"
-#include "server_tools.h"
-#include "data_dictionary.h"
-#include "db_interface.h"
-#include "utils.h"
+#include <table_tools.h>
+#include <index_tools.h>
+#include <journal_tools.h>
+#include <server_tools.h>
+#include <data_dictionary.h>
+#include <db_interface.h>
+#include <utils.h>
 
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz);
 
-bool subscription_txn_handler(journal_t *, db_table_t *, char, char *, char *);
-
-void display_data_dictionary(data_dictionary_t **data_dictionary) {
-	printf("Field list:\n");
-	for(int i = 0; i<(*data_dictionary)->num_fields; i++)
-		printf("%s\n", (&(*data_dictionary)->fields[i])->field_name);
-
-	printf("Schemas:\n");
-	for(int i = 0; i<(*data_dictionary)->num_schemas; i++) {
-		dd_table_schema_t *s = &(*data_dictionary)->schemas[i];
-		printf("%s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
-		for(int k = 0; k < s->field_count; k++) {
-			dd_datafield_t *f = s->fields[k];
-			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
-			if ( f->fieldtype == STR )
-				printf(" %d", f->field_sz);
-			printf(")\n");
-		}
-	}
-
-	printf("Tables:\n");
-	for(int i = 0; i<(*data_dictionary)->num_tables; i++) {
-		db_table_t *t = &(*data_dictionary)->tables[i];
-		dd_table_schema_t *s = t->schema;
-
-		printf("%s\n", t->table_name);
-		printf("\tschema %s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
-		for(int k = 0; k < s->field_count; k++) {
-			dd_datafield_t *f = s->fields[k];
-			printf("\t\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
-			if ( f->fieldtype == STR )
-				printf(" %d", f->field_sz);
-			printf(")\n");
-		}
-		printf("\tIndexes:\n");
-		for(int k = 0; k < t->num_indexes; k++) {
-			db_index_schema_t *idx = t->indexes[k]->idx_schema;
-			printf("\t\t%s (%s of order %d): ", t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
-			for(int f = 0; f < idx->num_fields; f++)
-				printf("%s%s", f == 0 ? "" : ", ", idx->fields[f]->field_name);
-			printf("\n");
-		}
-	}
-}
+bool subscription_txn_handler(journal_t *, db_table_t *, char, char *, char *, char *, size_t);
 
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
-	bool rv = false;
-	char *action = NULL;
+	char *action = NULL, *operation = NULL;
+	cJSON *k = NULL;
 
 	struct Server *app_server = NULL;
 	if ( argc >= 1 )
 		app_server = (struct Server *)argv[0];
 
 	if ( app_server == NULL )
-		return rv;
+		return false;
 
-	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "data");
+	k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
+	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
+		return false;
+
+	k = cJSON_GetObjectItemCaseSensitive(obj, "data");
 	if (!cJSON_IsObject(k))
-		return rv;
+		return false;
+
 
 	k = cJSON_GetObjectItemCaseSensitive(k, "action");
 	if (!cJSON_IsString(k) || ((action = k->valuestring) == NULL))
-		return rv;
+		return false;
 
-	printf("Action: %s\n", action);
-	if ( strcmp(action, "shutdown") == 0 ) {
-		app_server->running = false;
+	if ( strcmp(operation, "c") == 0 ) {
+		if ( strcmp(action, "shutdown") == 0 ) {
+			app_server->running = false;
+			cJSON *r = cJSON_CreateObject();
+			cJSON_AddStringToObject(r, "message", "server shutting down");
+			*resp = r;
+		}
 	}
 
-	cJSON *r = cJSON_CreateObject();
-	cJSON_AddStringToObject(r, "message", "server shutting down");
-	*resp = r;
-
-	return rv;
+	return true;
 }
 
 
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
 	char *operation = NULL, *lookup_index = NULL;
-	char op;
+	char op, errmsg[129];
+
 	journal_t *j = (journal_t *)(argv[0]);
 	db_table_t *tbl = (db_table_t *)(argv[1]);
 
+	bzero(&errmsg, sizeof(errmsg));
 	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
 	if (!cJSON_IsString(k) || ((operation = k->valuestring) == NULL))
 		return rv;
@@ -130,16 +94,19 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 	printf("Operation: %s (%c)\n", operation, op);
 	printf("Lookup Index: %s\n", lookup_index);
 
+	cJSON *r = cJSON_CreateObject();
 	switch (op) {
 		case 'i': ;
 			printf("Running insert on %s\n", tbl->table_name);
 			for(uint8_t i = 0; i < tbl->num_indexes; i++)
 				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
-			char *s = new_db_table_record(tbl->schema);
+			char *subscription_id, *s = new_db_table_record(tbl->schema);
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
-			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
+			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL)) {
 				set_db_table_record_field(tbl->schema, "subscription_id", k->valuestring, s);
+				subscription_id = k->valuestring;
+			}
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
@@ -148,7 +115,15 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 			k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
 				set_db_table_record_field(tbl->schema, "product_type", k->valuestring, s);
-			subscription_txn_handler(j, tbl, 'i', s, NULL);
+
+			rv = subscription_txn_handler(j, tbl, 'i', s, NULL, errmsg, sizeof(errmsg) - 1);
+
+			if ( rv ) {
+				cJSON_AddStringToObject(r, "id", subscription_id);
+			} else {
+				cJSON_AddStringToObject(r, "message", errmsg);
+			}
+
 			release_table_record(tbl->schema, s);
 			break;
 		case 'u': ;
@@ -161,8 +136,6 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 			// error message
 	}
 
-	cJSON *r = cJSON_CreateObject();
-	cJSON_AddStringToObject(r, "message", "hello world");
 	*resp = r;
 
 	return rv;
@@ -206,100 +179,108 @@ bool find_subscription_by_id(
 	return rv;
 }
 
+db_index_t *find_unique_key(db_table_t *tbl, char *candidate_key) {
+	db_index_t *uq_idx = find_db_index(tbl, candidate_key);
+	if ( uq_idx != NULL && !uq_idx->idx_schema->is_unique ) {
+		uq_idx = NULL;
+		fprintf(stderr, "Key %s is not a candidate for a unique search\n", candidate_key);
+	}
+
+	if ( uq_idx == NULL )
+		for(uint8_t i = 0; i < tbl->num_indexes; i++)
+			if ( uq_idx == NULL && tbl->indexes[i]->idx_schema->is_unique )
+				uq_idx = tbl->indexes[i];
+	return uq_idx;
+}
+
 bool subscription_txn_handler(
 		journal_t *j,
 		db_table_t *tbl,
 		char action,
 		char *subrec,
-		char *keyname
+		char *keyname,
+		char *errmsg,
+		size_t errmsgsz
 	) {
 
-	if ( tbl->free_record_slot == UINT64_MAX) {
-		fprintf(stderr, "ERR: writing to table %s, table is full\n", tbl->table_name);
-		return false;
-	}
-
 	char msg[128];
-
-	bool rv = false;
-	journal_record_t jr;
+	bool jnlwrite = false;
 	db_index_t *uq_idx = NULL, *idx = NULL;
-
-	bzero(&jr, sizeof(journal_record_t));
-	jr.msgsz = sizeof(journal_record_t) + tbl->schema->record_size;
-	strcpy(jr.objname, tbl->table_name);
-	jr.objsz = sizeof(tbl->schema->record_size);
-	jr.objdata = subrec;
-
-	if( keyname != NULL && (idx = find_db_index(tbl, keyname)) != NULL && idx->idx_schema->is_unique )
-		uq_idx = idx;
-	else if ( keyname != NULL )
-		fprintf(stderr, "Key %s is not a candidate for a unique search\n", keyname);
-
-	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
-		idx = tbl->indexes[i];
-		if ( idx->idx_schema->is_unique && uq_idx == NULL )
-			uq_idx = idx;
-	}
-
-	/* TODO find all unique indexes and check that none of them have been violated */
-	db_indexkey_t *key = NULL;
-	if ( uq_idx == NULL ) {
-		fprintf(stderr, "Unique key could not be identified\n");
-		return rv;
-	} else {
-		//printf("Using unique key %s for lookups\n", uq_idx->index_name);
-		key = create_key_from_record_data(tbl->schema, uq_idx->idx_schema, subrec);
-		key->record = UINT64_MAX;
-		strcpy(jr.objkey, uq_idx->index_name);
-	}
-
-	db_indexkey_t *k = NULL;
-	bool txn_valid = false;
+	db_indexkey_t *k = NULL, *key = NULL;
 
 	switch (action) {
 		case 'i': ;
-			jr.objtype = action;
-			if ( uq_idx != NULL ) {
-				if ( (k = dbidx_find_record(uq_idx->idx_schema, uq_idx->root_node, key)) != NULL ) {
+			if ( tbl->free_record_slot == UINT64_MAX) {
+				fprintf(stderr, "ERR: writing to table %s, table is full\n", tbl->table_name);
+				if ( errmsg != NULL )
+					snprintf(errmsg, errmsgsz, "error writing to table %s, table is full", tbl->table_name);
+				return false;
+			}
+
+			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+				idx = tbl->indexes[i];
+				if ( !idx->idx_schema->is_unique )
+					continue;
+
+				key = dbidx_allocate_key_with_data(uq_idx->idx_schema);
+				key = create_key_from_record_data(tbl->schema, uq_idx->idx_schema, subrec);
+				key->record = UINT64_MAX;
+				k = dbidx_find_record(uq_idx->idx_schema, uq_idx->root_node, key);
+				free(key);
+
+				if ( k != NULL ) {
 					idx_key_to_str(uq_idx->idx_schema, k, msg);
 					fprintf(stderr, "ERR: Duplicate record %s\n", msg);
-				} else
-					txn_valid = true;
-			} else
-				txn_valid = true;
-
-			if ( txn_valid ) {
-				uint64_t recnum = UINT64_MAX;
-				if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) < UINT64_MAX ) {
-					char *newrec = read_db_table_record(tbl->mapped_table, recnum);
-					for(uint8_t i = 0; i < tbl->num_indexes; i++) {
-						db_indexkey_t *newkey = create_key_from_record_data(tbl->schema, tbl->indexes[i]->idx_schema, newrec);
-						newkey->record = recnum;
-						dbidx_add_index_value(tbl->indexes[i], NULL, newkey);
-						free(newkey);
-					}
-					write_journal_record(j, &jr);
-				} else {
-					fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
+					if ( errmsg != NULL )
+						snprintf(errmsg, errmsgsz, "ERR: Duplicate record %s", msg);
 					return false;
 				}
 			}
+
+			uint64_t recnum = UINT64_MAX;
+			if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) == UINT64_MAX ) {
+				fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
+				if ( errmsg != NULL )
+					snprintf(errmsg, errmsgsz, "ERR: writing to table %s", tbl->table_name);
+				return false;
+			}
+
+			char *newrec = read_db_table_record(tbl->mapped_table, recnum);
+			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+				db_indexkey_t *newkey = create_key_from_record_data(tbl->schema, tbl->indexes[i]->idx_schema, newrec);
+				newkey->record = recnum;
+				dbidx_add_index_value(tbl->indexes[i], NULL, newkey);
+				free(newkey);
+			}
+			jnlwrite = true;
 			break;
 		case 'd':
-			jr.objtype = action;
 			break;
 		case 'u':
-			jr.objtype = action;
 			break;
 		case 'q':
+
 			break;
 		default:
 			fprintf(stderr, "Unknown txn action %c\n", action);
+			if ( errmsg != NULL )
+				snprintf(errmsg, errmsgsz, "Unknown txn action %c", action);
+			return false;
 	}
 
-	if( key != NULL )
-		free(key);
+	if ( jnlwrite ) {
+		journal_record_t jr;
+		bzero(&jr, sizeof(journal_record_t));
+
+		jr.objtype = action;
+		jr.msgsz = sizeof(journal_record_t) + tbl->schema->record_size;
+		strcpy(jr.objname, tbl->table_name);
+		jr.objsz = sizeof(tbl->schema->record_size);
+		jr.objdata = subrec;
+		if ( uq_idx != NULL && (action == 'u' || action == 'd') )
+			strcpy(jr.objkey, uq_idx->index_name);
+		write_journal_record(j, &jr);
+	}
 
 	return true;
 }
@@ -436,7 +417,7 @@ void load_subs_from_file(
 		bzero(line, sizeof(line));
 
 		//printf("Adding sub %s...", subid);
-		subscription_txn_handler(j, tbl, 'i', addsub, NULL);
+		subscription_txn_handler(j, tbl, 'i', addsub, NULL, NULL, 0);
 		rec_count++;
 		//printf("successfully added\n");
 
@@ -489,8 +470,7 @@ int main (int argc, char **argv) {
 	if ( errs > 0 )
 		exit(EXIT_FAILURE);
 
-	display_data_dictionary(data_dictionary);
-
+	print_data_dictionary(*data_dictionary);
 
 	if ( !load_all_dd_tables(*data_dictionary) )
 		exit(EXIT_FAILURE);
