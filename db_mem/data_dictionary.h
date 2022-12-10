@@ -98,6 +98,11 @@ typedef struct DbIndexKey { /* an index key may either be a terminal leaf or a j
 	char **data;
 } db_indexkey_t;
 
+typedef struct DbIndexPosition {
+	db_idxnode_t *node;
+	index_order_t nodeidx;
+} db_index_position_t;
+
 typedef struct DbIndex {
 	char index_name[DB_OBJECT_NAME_SZ];
 	db_idxnode_t *root_node;
@@ -203,13 +208,20 @@ bool dbidx_set_key_data_field_value(db_index_schema_t *, char *, char *, char *)
 bool dbidx_set_key_field_value(db_index_schema_t *, char *, db_indexkey_t *, char *);
 signed char dbidx_compare_keys(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
 
-db_indexkey_t *dbidx_find_record(db_index_t *, db_indexkey_t *);
+/* Generic Index Functions */
 bool dbidx_add_index_value (db_index_t *, db_indexkey_t *);
 bool dbidx_remove_index_value (db_index_t *, db_indexkey_t *);
+db_indexkey_t *dbidx_find_record(db_index_t *, db_indexkey_t *);
+db_indexkey_t *dbidx_find_first_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+db_indexkey_t *dbidx_find_last_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+db_indexkey_t *dbidx_find_next_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+db_indexkey_t *dbidx_find_prev_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
 
 uint64_t dbidx_num_child_records(db_idxnode_t *);
 signed char dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
+signed char dbidx_find_node_index_reverse(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
 db_idxnode_t *dbidx_find_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+db_idxnode_t *dbidx_find_node_reverse(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
 
 db_idxnode_t *dbidx_add_node_value(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
 bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key);
@@ -218,6 +230,8 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_
 void dbidx_collapse_nodes(db_index_schema_t *, db_idxnode_t *);
 
 void dbidx_update_max_value (db_idxnode_t *, db_idxnode_t *, db_indexkey_t *);
+
+void dbidx_key_print(db_index_schema_t *, db_indexkey_t *);
 
 void dbidx_print_tree(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);

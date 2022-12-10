@@ -36,7 +36,7 @@ typedef struct Records {
 } record_t;
 
 int main (int argc, char **argv) {
-	int errs = 0, ofd = 0;
+	int errs = 0;
 	char c;
 	char *dd_in_filename = NULL, *dd_out_filename = NULL;
 
