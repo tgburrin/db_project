@@ -10,7 +10,6 @@
 
 #include <unistd.h>
 
-#include "table_tools.h"
 #include "utils.h"
 
 #define DEFAULT_JOURNAL "txn.jnl"

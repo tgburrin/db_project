@@ -1,4 +1,4 @@
-#include "index_tools.h"
+#include "data_dictionary.h"
 
 db_idxnode_t * dbidx_init_root_node(db_index_schema_t *idx) {
 	db_idxnode_t *idxnode = dbidx_allocate_node(idx);
@@ -219,10 +219,10 @@ uint64_t dbidx_num_child_records(db_idxnode_t *idxnode) {
 	return rv;
 }
 
-db_indexkey_t *dbidx_find_record(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec) {
+db_indexkey_t *dbidx_find_record(db_index_t *idx, db_indexkey_t *find_rec) {
 	db_indexkey_t *rv = NULL;
 
-	idxnode = dbidx_find_node(idx, idxnode, find_rec);
+	db_idxnode_t *idxnode = dbidx_find_node(idx->idx_schema, idx->root_node, find_rec);
 	index_order_t index = 0;
 	signed char found = 0;
 
@@ -231,13 +231,13 @@ db_indexkey_t *dbidx_find_record(db_index_schema_t *idx, db_idxnode_t *idxnode, 
 		return rv;
 
 	db_idxnode_t *current = idxnode;
-	while ( (found = dbidx_find_node_index(idx, current, find_rec, &index)) == 1)
+	while ( (found = dbidx_find_node_index(idx->idx_schema, current, find_rec, &index)) == 1)
 		if ( current->next == NULL )
 			break;
 		else
 			current = current->next;
 
-	if ( found == 0 && dbidx_compare_keys(idx, current->children[index], find_rec) == 0 )
+	if ( found == 0 && dbidx_compare_keys(idx->idx_schema, current->children[index], find_rec) == 0 )
 		rv = current->children[index];
 
 	return rv;
@@ -317,76 +317,37 @@ db_idxnode_t *dbidx_find_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db_
 	return dbidx_find_node(idx, current->children[index]->childnode, find_rec);
 }
 
-bool dbidx_add_index_value (db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
+bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 	bool rv = false;
-	db_idxnode_t *current = idxnode;
-	if ( current == NULL )
-		current = idx->root_node;
+	db_idxnode_t *current = dbidx_find_node(idx->idx_schema, idx->root_node, key);
 
-	if ( current->is_leaf ) {
+	if ( current != NULL ) {
 		if ( idx->idx_schema->is_unique ) {
-			bool found = true;
-			found = dbidx_find_record(idx->idx_schema, current, key) != NULL;
+			index_order_t nodeidx = 0;
+			uint64_t cr = key->record;
+			key->record = UINT64_MAX;
+			bool found = 0;
+			found = dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0;
 			if ( found )
 				return rv;
+			else
+				key->record = cr;
 		}
 		dbidx_add_node_value(idx->idx_schema, current, key);
 		rv = true;
-	} else {
-		index_order_t index = 0, i;
-
-		/*
-		check the middle-ish node to see if our id is higher or lower than that and
-		determine if it'll be i++ or i--
-		*/
-
-		if ( current->num_children > 0 ) {
-			i = current->num_children / 2;
-			index = i;
-			if ( dbidx_compare_keys(idx->idx_schema, current->children[i], key) < 0 ) {
-				/*
-				 * the current key is smaller than the new key,
-				 * find the index where something larger than it is
-				 * and use that index
-				 * */
-				for ( i++; i < current->num_children; i++ ) {
-					index = i;
-					if ( dbidx_compare_keys(idx->idx_schema, current->children[i], key) > 0 )
-						break;
-				}
-			} else {
-				/*
-				 * the current key is smaller than the new one, so count down until it is
-				 * count down until we find the point where decreasing the index would make the
-				 * new key smller than the current and break before we set that index
-				 */
-				do {
-					i--;
-					if ( dbidx_compare_keys(idx->idx_schema, current->children[i], key) < 0 )
-						break;
-					index = i;
-				} while ( i > 0 );
-			}
-		}
-		dbidx_add_index_value(idx, current->children[index]->childnode, key);
 	}
 	return rv;
 }
 
-bool dbidx_remove_index_value (db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
-	if ( idxnode == NULL )
-		idxnode = idx->root_node;
-
+bool dbidx_remove_index_value (db_index_t *idx, db_indexkey_t *key) {
 	char msg[128];
 	idx_key_to_str(idx->idx_schema, key, msg);
 	printf("Removing %s(%" PRIu64 ")\n", msg, key->record);
 
-	db_idxnode_t *leaf_node = dbidx_find_node(idx->idx_schema, idxnode, key);
+	db_idxnode_t *leaf_node = dbidx_find_node(idx->idx_schema, idx->root_node, key);
 
 	bool success = dbidx_remove_node_value(idx->idx_schema, leaf_node, key);
-
-	if ( idxnode == idxnode->parent )
-		dbidx_collapse_nodes(idx->idx_schema, idxnode);
+	dbidx_collapse_nodes(idx->idx_schema, idx->root_node);
 
 	return success;
 }

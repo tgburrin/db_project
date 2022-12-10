@@ -26,8 +26,6 @@
 
 #include <cjson/cJSON.h>
 
-#include <table_tools.h>
-#include <index_tools.h>
 #include <data_dictionary.h>
 
 typedef struct Records {
