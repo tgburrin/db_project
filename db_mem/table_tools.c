@@ -5,7 +5,7 @@
  *      Author: tgburrin
  */
 
-#include "table_tools.h"
+#include "data_dictionary.h"
 
 bool open_dd_table(db_table_t *tbl) {
 	int i = 0;
@@ -262,6 +262,22 @@ bool set_db_table_record_field(dd_table_schema_t *tbl, char *field_name, char *v
 			memcpy(data + offset, value, tbl->fields[i]->field_sz);
 		} else
 			offset += tbl->fields[i]->field_sz;
+	}
+	return found;
+}
+
+bool set_db_table_record_field_str(dd_table_schema_t *tbl, char *field_name, char *value, char *data) {
+	//size_t offset = 0;
+	bool found = false;
+	for(uint8_t i = 0; i < tbl->num_fields && !found; i++) {
+		if ( strcmp(tbl->fields[i]->field_name, field_name) == 0 ) {
+			dd_datafield_t *field = tbl->fields[i];
+			char *fielddata = malloc(field->field_sz);
+			str_to_dd_type(field, value, fielddata);
+			set_db_table_record_field(tbl, field_name, fielddata, data);
+			free(fielddata);
+			break;
+		}
 	}
 	return found;
 }

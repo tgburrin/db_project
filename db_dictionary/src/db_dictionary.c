@@ -26,8 +26,6 @@
 
 #include <cjson/cJSON.h>
 
-#include <table_tools.h>
-#include <index_tools.h>
 #include <data_dictionary.h>
 
 typedef struct Records {
@@ -38,7 +36,7 @@ typedef struct Records {
 } record_t;
 
 int main (int argc, char **argv) {
-	int errs = 0, ofd = 0;
+	int errs = 0;
 	char c;
 	char *dd_in_filename = NULL, *dd_out_filename = NULL;
 

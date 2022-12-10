@@ -8,8 +8,6 @@
 #ifndef DB_INTERFACE_H_
 #define DB_INTERFACE_H_
 
-#include "table_tools.h"
-#include "index_tools.h"
 #include "journal_tools.h"
 #include "server_tools.h"
 #include "data_dictionary.h"

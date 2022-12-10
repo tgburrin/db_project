@@ -1,4 +1,4 @@
-#include "index_tools.h"
+#include "data_dictionary.h"
 
 db_idxnode_t * dbidx_init_root_node(db_index_schema_t *idx) {
 	db_idxnode_t *idxnode = dbidx_allocate_node(idx);
@@ -219,10 +219,14 @@ uint64_t dbidx_num_child_records(db_idxnode_t *idxnode) {
 	return rv;
 }
 
-db_indexkey_t *dbidx_find_record(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec) {
+db_indexkey_t *dbidx_find_record(db_index_t *idx, db_indexkey_t *find_rec) {
+	return dbidx_find_first_record(idx, find_rec, NULL);
+}
+
+db_indexkey_t *dbidx_find_first_record(db_index_t *idx, db_indexkey_t *findkey, db_index_position_t *currentpos) {
 	db_indexkey_t *rv = NULL;
 
-	idxnode = dbidx_find_node(idx, idxnode, find_rec);
+	db_idxnode_t *idxnode = dbidx_find_node(idx->idx_schema, idx->root_node, findkey);
 	index_order_t index = 0;
 	signed char found = 0;
 
@@ -231,17 +235,109 @@ db_indexkey_t *dbidx_find_record(db_index_schema_t *idx, db_idxnode_t *idxnode, 
 		return rv;
 
 	db_idxnode_t *current = idxnode;
-	while ( (found = dbidx_find_node_index(idx, current, find_rec, &index)) == 1)
+	while ( (found = dbidx_find_node_index(idx->idx_schema, current, findkey, &index)) == 1)
 		if ( current->next == NULL )
 			break;
 		else
 			current = current->next;
 
-	if ( found == 0 && dbidx_compare_keys(idx, current->children[index], find_rec) == 0 )
+	if ( found == 0 && dbidx_compare_keys(idx->idx_schema, current->children[index], findkey) == 0 ) {
 		rv = current->children[index];
+		if ( currentpos != NULL ) {
+			currentpos->node = current;
+			currentpos->nodeidx = index;
+		}
+	}
+
+	if ( rv == NULL && currentpos != NULL ) {
+		currentpos->node = NULL;
+		currentpos->nodeidx = INDEX_ORDER_MAX;
+	}
 
 	return rv;
+}
 
+db_indexkey_t *dbidx_find_last_record(db_index_t *idx, db_indexkey_t *findkey, db_index_position_t *currentpos) {
+	db_indexkey_t *rv = NULL;
+
+	db_idxnode_t *idxnode = dbidx_find_node_reverse(idx->idx_schema, idx->root_node, findkey);
+	index_order_t index = 0;
+	signed char found = 0;
+
+	// edge case, empty index
+	if ( idxnode->num_children == 0 )
+		return rv;
+
+	db_idxnode_t *current = idxnode;
+	while ( (found = dbidx_find_node_index_reverse(idx->idx_schema, current, findkey, &index)) == -1)
+		if ( current->prev == NULL )
+			break;
+		else
+			current = current->prev;
+
+	if ( found == 0 )
+		index--;
+
+	if ( found >= 0 && dbidx_compare_keys(idx->idx_schema, current->children[index], findkey) == 0 ) {
+		rv = current->children[index];
+		if ( currentpos != NULL ) {
+			currentpos->node = current;
+			currentpos->nodeidx = index;
+		}
+	}
+
+	if ( rv == NULL && currentpos != NULL ) {
+		currentpos->node = NULL;
+		currentpos->nodeidx = INDEX_ORDER_MAX;
+	}
+
+	return rv;
+}
+
+db_indexkey_t *dbidx_find_next_record(db_index_t *idx, db_indexkey_t *findkey, db_index_position_t *currentpos) {
+	db_indexkey_t *rv = NULL;
+	if (currentpos == NULL || currentpos->node == NULL || !currentpos->node->is_leaf)
+		return rv;
+
+	currentpos->nodeidx++;
+	if ( currentpos->nodeidx >= currentpos->node->num_children ) {
+		currentpos->node = currentpos->node->next;
+		currentpos->nodeidx = 0;
+	}
+
+	if ( currentpos->node != NULL )
+		if (dbidx_compare_keys(idx->idx_schema, currentpos->node->children[currentpos->nodeidx], findkey) == 0)
+			rv = currentpos->node->children[currentpos->nodeidx];
+
+	if ( rv == NULL ) {
+		currentpos->node = NULL;
+		currentpos->nodeidx = INDEX_ORDER_MAX;
+	}
+
+	return rv;
+}
+
+db_indexkey_t *dbidx_find_prev_record(db_index_t *idx, db_indexkey_t *findkey, db_index_position_t *currentpos) {
+	db_indexkey_t *rv = NULL;
+	if (currentpos == NULL || currentpos->node == NULL || !currentpos->node->is_leaf)
+		return rv;
+
+	if ( currentpos->nodeidx == 0 ) {
+		currentpos->node = currentpos->node->prev;
+		currentpos->nodeidx = currentpos->node->num_children - 1;
+	} else
+		currentpos->nodeidx--;
+
+	if ( currentpos->node != NULL )
+		if (dbidx_compare_keys(idx->idx_schema, currentpos->node->children[currentpos->nodeidx], findkey) == 0)
+			rv = currentpos->node->children[currentpos->nodeidx];
+
+	if ( rv == NULL ) {
+		currentpos->node = NULL;
+		currentpos->nodeidx = INDEX_ORDER_MAX;
+	}
+
+	return rv;
 }
 
 signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
@@ -300,6 +396,51 @@ signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode,
 	return rv;
 }
 
+signed char dbidx_find_node_index_reverse(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
+	signed char rv = 0;
+	if ( idxnode->num_children == 0 )
+		return rv;
+
+	int64_t i = idxnode->num_children / 2;
+
+	index_order_t lower = 0;
+	index_order_t upper = idxnode->num_children;
+
+	for ( ;; ) {
+		/*
+		 * This code is similar to the function above, except that it find s the top of a range
+		 */
+
+		if ( (upper - lower) <= 1 ) {
+			while ( i >= 0 && i < idxnode->num_children && dbidx_compare_keys(idx, idxnode->children[i], find_rec) > 0 )
+				i--;
+			while ( i >= 0 && i < idxnode->num_children && dbidx_compare_keys(idx, idxnode->children[i], find_rec) < 1 )
+				i++;
+			break;
+		} else if ( dbidx_compare_keys(idx, idxnode->children[i], find_rec) < 1 ) {
+			lower = i;
+		} else {
+			upper = i;
+		}
+
+		i = lower + ((upper - lower) / 2);
+	}
+
+	if ( i < 0 ) {
+		rv = -1;
+		*index = 0;
+	} else if ( i >= idxnode->num_children ) {
+		rv = 1;
+		*index  = idxnode->num_children - 1;
+	} else {
+		rv = 0;
+		*index = i;
+	}
+
+	return rv;
+}
+
+
 db_idxnode_t *dbidx_find_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec) {
 	if ( idxnode->is_leaf )
 			return idxnode;
@@ -317,76 +458,55 @@ db_idxnode_t *dbidx_find_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db_
 	return dbidx_find_node(idx, current->children[index]->childnode, find_rec);
 }
 
-bool dbidx_add_index_value (db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
-	bool rv = false;
-	db_idxnode_t *current = idxnode;
-	if ( current == NULL )
-		current = idx->root_node;
+db_idxnode_t *dbidx_find_node_reverse(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec) {
+	if ( idxnode->is_leaf )
+			return idxnode;
 
-	if ( current->is_leaf ) {
+	index_order_t index = 0;
+	signed char found = 0;
+	db_idxnode_t *current = idxnode;
+
+	while ( (found = dbidx_find_node_index_reverse(idx, current, find_rec, &index)) <= 0)
+		if ( current->prev == NULL )
+			break;
+		else
+			current = current->prev;
+
+	return dbidx_find_node_reverse(idx, current->children[index]->childnode, find_rec);
+}
+
+
+bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
+	bool rv = false;
+	db_idxnode_t *current = dbidx_find_node(idx->idx_schema, idx->root_node, key);
+
+	if ( current != NULL ) {
 		if ( idx->idx_schema->is_unique ) {
-			bool found = true;
-			found = dbidx_find_record(idx->idx_schema, current, key) != NULL;
+			index_order_t nodeidx = 0;
+			uint64_t cr = key->record;
+			key->record = UINT64_MAX;
+			bool found = 0;
+			found = dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0;
 			if ( found )
 				return rv;
+			else
+				key->record = cr;
 		}
 		dbidx_add_node_value(idx->idx_schema, current, key);
 		rv = true;
-	} else {
-		index_order_t index = 0, i;
-
-		/*
-		check the middle-ish node to see if our id is higher or lower than that and
-		determine if it'll be i++ or i--
-		*/
-
-		if ( current->num_children > 0 ) {
-			i = current->num_children / 2;
-			index = i;
-			if ( dbidx_compare_keys(idx->idx_schema, current->children[i], key) < 0 ) {
-				/*
-				 * the current key is smaller than the new key,
-				 * find the index where something larger than it is
-				 * and use that index
-				 * */
-				for ( i++; i < current->num_children; i++ ) {
-					index = i;
-					if ( dbidx_compare_keys(idx->idx_schema, current->children[i], key) > 0 )
-						break;
-				}
-			} else {
-				/*
-				 * the current key is smaller than the new one, so count down until it is
-				 * count down until we find the point where decreasing the index would make the
-				 * new key smller than the current and break before we set that index
-				 */
-				do {
-					i--;
-					if ( dbidx_compare_keys(idx->idx_schema, current->children[i], key) < 0 )
-						break;
-					index = i;
-				} while ( i > 0 );
-			}
-		}
-		dbidx_add_index_value(idx, current->children[index]->childnode, key);
 	}
 	return rv;
 }
 
-bool dbidx_remove_index_value (db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
-	if ( idxnode == NULL )
-		idxnode = idx->root_node;
-
+bool dbidx_remove_index_value (db_index_t *idx, db_indexkey_t *key) {
 	char msg[128];
 	idx_key_to_str(idx->idx_schema, key, msg);
 	printf("Removing %s(%" PRIu64 ")\n", msg, key->record);
 
-	db_idxnode_t *leaf_node = dbidx_find_node(idx->idx_schema, idxnode, key);
+	db_idxnode_t *leaf_node = dbidx_find_node(idx->idx_schema, idx->root_node, key);
 
 	bool success = dbidx_remove_node_value(idx->idx_schema, leaf_node, key);
-
-	if ( idxnode == idxnode->parent )
-		dbidx_collapse_nodes(idx->idx_schema, idxnode);
+	dbidx_collapse_nodes(idx->idx_schema, idx->root_node);
 
 	return success;
 }
@@ -751,6 +871,40 @@ void dbidx_update_max_value (db_idxnode_t *parent_idx, db_idxnode_t *idxnode, db
 	}
 }
 
+void dbidx_key_print(db_index_schema_t *idx, db_indexkey_t *key) {
+	if ( key == NULL || key->data == NULL ) {
+		printf("Null key provided\n");
+		return;
+	}
+
+	char buff[128];
+	size_t offset = 0, max_label_size = strlen("record_number");
+	for(uint8_t i = 0; i < idx->num_fields; i++)
+		if ( strlen(idx->fields[i]->field_name) > max_label_size)
+			max_label_size = strlen(idx->fields[i]->field_name);
+
+	char padding[max_label_size+1];
+
+	for(uint8_t i = 0; i < idx->num_fields; i++) {
+		bzero(&buff, sizeof(buff));
+		dd_type_to_str(idx->fields[i], *key->data + offset, buff);
+		memset(padding, ' ', max_label_size);
+		padding[max_label_size] = '\0';
+		memcpy(padding, idx->fields[i]->field_name, strlen(idx->fields[i]->field_name));
+		printf("%s: %s\n", padding, buff);
+		offset += idx->fields[i]->field_sz;
+	}
+	memset(padding, ' ', max_label_size);
+	padding[max_label_size] = '\0';
+	memcpy(padding, "record_number", strlen("record_number"));
+	if ( key->record != UINT64_MAX )
+		printf("%s: %" PRIu64 "\n", padding, key->record);
+	else
+		printf("%s: UINT64_MAX\n", padding);
+
+	return;
+}
+
 void dbidx_print_tree(db_index_t *idx, db_idxnode_t *idxnode, uint64_t *counter) {
 	db_idxnode_t *s = idxnode, *starting_node;
 	if ( s == NULL ) {
@@ -991,12 +1145,10 @@ void dbidx_write_file_keys(db_index_t *idx) {
 		db_index_schema_t *schema = idx->idx_schema;
 		write(fd, &schema->num_fields, sizeof(uint8_t));
 		header += sizeof(uint8_t);
-		printf("%ld bytes\n", sizeof(uint8_t));
 		for(uint8_t i = 0; i < schema->num_fields; i++) {
 			dd_datafield_t *f = schema->fields[i];
 			write(fd, f, sizeof(dd_datafield_t));
 			header += sizeof(dd_datafield_t);
-			printf("%ld bytes\n", sizeof(dd_datafield_t));
 		}
 
 		while(!cn->is_leaf)
@@ -1007,7 +1159,6 @@ void dbidx_write_file_keys(db_index_t *idx) {
 		write(fd, &recordcount, sizeof(recordcount));
 		while ( cn != NULL ) {
 			for(i = 0; i < cn->num_children; i++) {
-				printf("writing key %s size %u\n", *cn->children[i]->data, schema->record_size);
 				write(fd, *cn->children[i]->data, schema->record_size);
 				write(fd, &cn->children[i]->record, sizeof(uint64_t));
 				recordcount++;
@@ -1015,7 +1166,6 @@ void dbidx_write_file_keys(db_index_t *idx) {
 			cn = cn->next;
 		}
 		lseek(fd, header, SEEK_SET);
-		printf("Seeking back %" PRIu64 " bytes\n", header);
 		write(fd, &recordcount, sizeof(recordcount));
 		close(fd);
 

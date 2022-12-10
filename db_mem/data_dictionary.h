@@ -8,7 +8,11 @@
 #ifndef DATA_DICTIONARY_H_
 #define DATA_DICTIONARY_H_
 
+#include <unistd.h>
+#include <arpa/inet.h>
 #include <pthread.h>
+#include <inttypes.h>
+#include <sys/mman.h>
 
 #include <cjson/cJSON.h>
 #include "utils.h"
@@ -26,8 +30,6 @@ typedef struct DbIndexNode db_idxnode_t;
 typedef struct DbIndexKey db_indexkey_t;
 
 typedef enum { STR, TIMESTAMP, BOOL, I8, UI8, I16, UI16, I32, UI32, I64, UI64, UUID, BYTES } datatype_t;
-
-typedef int (*compare_value_f)(char *, char *);
 
 /* description structures */
 typedef struct DDDataField {
@@ -96,6 +98,11 @@ typedef struct DbIndexKey { /* an index key may either be a terminal leaf or a j
 	char **data;
 } db_indexkey_t;
 
+typedef struct DbIndexPosition {
+	db_idxnode_t *node;
+	index_order_t nodeidx;
+} db_index_position_t;
+
 typedef struct DbIndex {
 	char index_name[DB_OBJECT_NAME_SZ];
 	db_idxnode_t *root_node;
@@ -117,6 +124,7 @@ typedef struct DataDictionary {
 	db_table_t *tables;
 } data_dictionary_t;
 
+/* Generic data dictionary - data_dictionary.c */
 data_dictionary_t **init_data_dictionary(uint32_t, uint32_t, uint32_t);
 data_dictionary_t **build_dd_from_json(char *);
 data_dictionary_t **build_dd_from_dat(char *);
@@ -133,6 +141,7 @@ dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 const char *map_enum_to_name(datatype_t);
 void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
 bool dd_type_to_str(dd_datafield_t *, char *, char *);
+bool str_to_dd_type(dd_datafield_t *, char *, char *);
 
 int add_dd_table(data_dictionary_t **, db_table_t *, db_table_t **);
 int add_dd_schema(data_dictionary_t **, dd_table_schema_t *, dd_table_schema_t **);
@@ -163,5 +172,73 @@ signed char ui8_compare (uint8_t *, uint8_t *);
 signed char bytes_compare(const unsigned char *, const unsigned char *, size_t);
 
 signed char ts_compare (struct timespec *, struct timespec *);
+
+/* Table Functions - table_tools.c */
+bool open_dd_table(db_table_t *tablemeta);
+bool close_dd_table(db_table_t *tablemeta);
+
+uint64_t add_db_table_record(db_table_t *, char *);
+bool delete_db_table_record(db_table_t *, uint64_t, char *);
+char * read_db_table_record(db_table_t *, uint64_t);
+char * new_db_table_record(dd_table_schema_t *);
+void reset_db_table_record(dd_table_schema_t *, char *);
+void release_table_record(dd_table_schema_t *, char *);
+bool set_db_table_record_field(dd_table_schema_t *, char *, char *, char *);
+bool set_db_table_record_field_str(dd_table_schema_t *, char *, char *, char *);
+bool set_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
+
+void db_table_record_print(dd_table_schema_t *, char *);
+void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);
+
+/* Index Functions - index_tools.c */
+db_idxnode_t *dbidx_init_root_node(db_index_schema_t *);
+db_idxnode_t *dbidx_allocate_node(db_index_schema_t *);
+db_indexkey_t *dbidx_allocate_key(db_index_schema_t *); /* allocates just the key, data must be maintained separately */
+void dbidx_reset_key(db_index_schema_t *, db_indexkey_t *);
+void dbidx_reset_key_with_data(db_index_schema_t *, db_indexkey_t *);
+char *dbidx_allocate_key_data(db_index_schema_t *); /* allocates just the data to be attached to the key */
+/* the allocates both key and data, attaches it to the key, but copies will not account for the data payload
+ * it is useful only for comparisons */
+db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *);
+bool dbidx_copy_key(db_indexkey_t *, db_indexkey_t *);
+
+void dbidx_release_tree(db_index_t *, db_idxnode_t *);
+
+bool dbidx_set_key_data_field_value(db_index_schema_t *, char *, char *, char *);
+bool dbidx_set_key_field_value(db_index_schema_t *, char *, db_indexkey_t *, char *);
+signed char dbidx_compare_keys(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
+
+/* Generic Index Functions */
+bool dbidx_add_index_value (db_index_t *, db_indexkey_t *);
+bool dbidx_remove_index_value (db_index_t *, db_indexkey_t *);
+db_indexkey_t *dbidx_find_record(db_index_t *, db_indexkey_t *);
+db_indexkey_t *dbidx_find_first_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+db_indexkey_t *dbidx_find_last_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+db_indexkey_t *dbidx_find_next_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+db_indexkey_t *dbidx_find_prev_record(db_index_t *, db_indexkey_t *, db_index_position_t *);
+
+uint64_t dbidx_num_child_records(db_idxnode_t *);
+signed char dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
+signed char dbidx_find_node_index_reverse(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
+db_idxnode_t *dbidx_find_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+db_idxnode_t *dbidx_find_node_reverse(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+
+db_idxnode_t *dbidx_add_node_value(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key);
+
+db_idxnode_t *dbidx_split_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
+void dbidx_collapse_nodes(db_index_schema_t *, db_idxnode_t *);
+
+void dbidx_update_max_value (db_idxnode_t *, db_idxnode_t *, db_indexkey_t *);
+
+void dbidx_key_print(db_index_schema_t *, db_indexkey_t *);
+
+void dbidx_print_tree(db_index_t *, db_idxnode_t *, uint64_t *);
+void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);
+void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
+
+void dbidx_read_file_records(db_index_t *idx);
+void dbidx_write_file_records(db_index_t *);
+void dbidx_write_file_keys(db_index_t *);
 
 #endif /* DATA_DICTIONARY_H_ */

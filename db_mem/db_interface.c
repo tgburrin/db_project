@@ -45,7 +45,7 @@ bool load_dd_index_from_table(db_table_t *tbl) {
 					continue;
 				dbidx_reset_key(tbl->indexes[i]->idx_schema, key);
 				set_key_from_record_slot(tbl, slot, tbl->indexes[i]->idx_schema, key);
-				dbidx_add_index_value(tbl->indexes[i], NULL, key);
+				dbidx_add_index_value(tbl->indexes[i], key);
 				record_count++;
 			}
 			free(key);

@@ -13,8 +13,6 @@
 
 #include <zlib.h>
 
-#include <table_tools.h>
-#include <index_tools.h>
 #include <journal_tools.h>
 #include <server_tools.h>
 #include <data_dictionary.h>
@@ -65,7 +63,7 @@ bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *
 
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
-	char *operation = NULL, *lookup_index = NULL;
+	char *operation = NULL, *lookup_index = NULL, *subscription_id = NULL, *subscription = NULL;
 	char op, errmsg[129];
 
 	journal_t *j = (journal_t *)(argv[0]);
@@ -100,23 +98,24 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 			printf("Running insert on %s\n", tbl->table_name);
 			for(uint8_t i = 0; i < tbl->num_indexes; i++)
 				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
-			char *subscription_id, *s = new_db_table_record(tbl->schema);
+			subscription = new_db_table_record(tbl->schema);
+			subscription_id = NULL;
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL)) {
-				set_db_table_record_field(tbl->schema, "subscription_id", k->valuestring, s);
+				set_db_table_record_field(tbl->schema, "subscription_id", k->valuestring, subscription);
 				subscription_id = k->valuestring;
 			}
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				set_db_table_record_field(tbl->schema, "customer_id", k->valuestring, s);
+				set_db_table_record_field(tbl->schema, "customer_id", k->valuestring, subscription);
 
 			k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
 			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				set_db_table_record_field(tbl->schema, "product_type", k->valuestring, s);
+				set_db_table_record_field(tbl->schema, "product_type", k->valuestring, subscription);
 
-			rv = subscription_txn_handler(j, tbl, 'i', s, NULL, errmsg, sizeof(errmsg) - 1);
+			rv = subscription_txn_handler(j, tbl, 'i', subscription, NULL, errmsg, sizeof(errmsg) - 1);
 
 			if ( rv ) {
 				cJSON_AddStringToObject(r, "id", subscription_id);
@@ -124,13 +123,26 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 				cJSON_AddStringToObject(r, "message", errmsg);
 			}
 
-			release_table_record(tbl->schema, s);
+			release_table_record(tbl->schema, subscription);
 			break;
 		case 'u': ;
 			break;
 		case 'd': ;
 			break;
 		case 'q': ;
+			printf("Running insert on %s\n", tbl->table_name);
+			for(uint8_t i = 0; i < tbl->num_indexes; i++)
+				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
+			subscription = new_db_table_record(tbl->schema);
+			cJSON *recfield = NULL;
+			if ( data->child != NULL ) {
+				recfield = data->child;
+				do {
+					printf("Setting %s\n", recfield->string);
+					//set_db_table_record_field
+				} while ( (recfield = recfield->next) != NULL );
+			}
+			release_table_record(tbl->schema, subscription);
 			break;
 		default: ;
 			// error message
@@ -166,7 +178,7 @@ bool find_subscription_by_id(
 	bzero(subid, subfield->field_sz);
 	strcpy(subid, subscription_id);
 	dbidx_set_key_field_value(subidx->idx_schema, "subscription_id", subkey, subid);
-	if ((kp = dbidx_find_record(subidx->idx_schema, subidx->root_node, subkey)) != NULL) {
+	if ((kp = dbidx_find_record(subidx, subkey)) != NULL) {
 		if ( (*subrec = read_db_table_record(tbl->mapped_table, kp->record)) == NULL )
 			fprintf(stderr, "Error while reading %s from slot %" PRIu64 "\n", subscription_id, kp->record);
 		else
@@ -225,7 +237,7 @@ bool subscription_txn_handler(
 				key = dbidx_allocate_key_with_data(uq_idx->idx_schema);
 				key = create_key_from_record_data(tbl->schema, uq_idx->idx_schema, subrec);
 				key->record = UINT64_MAX;
-				k = dbidx_find_record(uq_idx->idx_schema, uq_idx->root_node, key);
+				k = dbidx_find_record(uq_idx, key);
 				free(key);
 
 				if ( k != NULL ) {
@@ -249,7 +261,7 @@ bool subscription_txn_handler(
 			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
 				db_indexkey_t *newkey = create_key_from_record_data(tbl->schema, tbl->indexes[i]->idx_schema, newrec);
 				newkey->record = recnum;
-				dbidx_add_index_value(tbl->indexes[i], NULL, newkey);
+				dbidx_add_index_value(tbl->indexes[i], newkey);
 				free(newkey);
 			}
 			jnlwrite = true;

@@ -7,8 +7,6 @@
 
 #include <string.h>
 
-#include "table_tools.h"
-#include "index_tools.h"
 #include "data_dictionary.h"
 
 char const * datatype_names[] = {"STR", "TIMESTAMP", "BOOL", "I8", "UI8", "I16", "UI16", "I32", "UI32", "I64", "UI64", "UUID", "BYTES"};
@@ -724,6 +722,121 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 	case BYTES:
 		for(uint32_t i = 0; i < field->field_sz; i++)
 			sprintf(str + i * 2, "%02x", ((unsigned char *)data)[i]);
+		break;
+	default:
+		break;
+	}
+	return rv;
+}
+
+bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
+	bool rv = false;
+	int ival = 0;
+	char *err = NULL;
+	uint64_t puv = 0;
+	int64_t piv = 0;
+	unsigned char hex = 0;
+	unsigned int hexi = 0;
+
+	switch (field->fieldtype) {
+	case STR:
+		if( strlen(instr) <= field->field_sz ) {
+			snprintf(instr, field->field_sz, "%s", outdata);
+			rv = true;
+		}
+		break;
+	case TIMESTAMP:
+		if ( is_utc_timestamp(instr) && parse_timestamp(instr, (struct timespec *)outdata) )
+			rv = true;
+		break;
+	case UUID:
+		if ( uuid_parse(instr, *(uuid_t *)outdata) == 0 )
+			rv = true;
+		break;
+	case UI64:
+		puv = strtoumax(instr, &err, 0);
+		if( puv < UINT64_MAX ) {
+			*(uint64_t *)outdata = puv;
+			rv = true;
+		}
+		//if ( errno == ERANGE ) {}
+		break;
+	case I64:
+		piv = strtoimax(instr, &err, 0);
+		if( piv < INT64_MAX ) {
+			*(int64_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case UI32:
+		puv = strtoumax(instr, &err, 0);
+		if( puv < UINT32_MAX ) {
+			*(uint32_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case I32:
+		piv = strtoimax(instr, &err, 0);
+		if( piv < INT32_MAX ) {
+			*(int32_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case UI16:
+		puv = strtoumax(instr, &err, 0);
+		if( puv < UINT16_MAX ) {
+			*(uint16_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case I16:
+		piv = strtoimax(instr, &err, 0);
+		if( piv < INT16_MAX ) {
+			*(int16_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case UI8:
+		puv = strtoumax(instr, &err, 0);
+		if( puv < UINT8_MAX ) {
+			*(uint8_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case I8:
+		piv = strtoimax(instr, &err, 0);
+		if( piv < INT8_MAX ) {
+			*(int8_t *)outdata = puv;
+			rv = true;
+		}
+		break;
+	case BOOL:
+		if ( strcmp(instr, "true") == 0 ) {
+			*(bool *)outdata = true;
+			rv = true;
+		} else if ( strcmp(instr, "false") == 0 ) {
+			*(bool *)outdata = false;
+			rv = true;
+		}
+		break;
+	case BYTES:
+		if ( strlen(instr) % 4 == 0 ) {
+			hex = 0;
+			for(puv = 0; puv < strlen(instr) / 8; puv++) {
+				if ( (ival = sscanf(instr + puv * 8, "%08X", &hexi)) == EOF ) {
+					hex++;
+					break;
+				} else {
+					hexi = htonl(hexi);
+					memcpy(outdata + sizeof(unsigned int) * puv, &hexi, sizeof(unsigned int));
+				}
+			}
+			if (hex == 0)
+				rv = true;
+		} else if ( strlen(instr) % 2 == 0 ) {
+			for(puv = 0; puv < strlen(instr) / 2; puv++) {
+			}
+		}
 		break;
 	default:
 		break;
