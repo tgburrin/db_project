@@ -282,13 +282,26 @@ bool set_db_table_record_field_str(dd_table_schema_t *tbl, char *field_name, cha
 	return found;
 }
 
-bool set_db_table_record_field_num(dd_table_schema_t *tbl, uint8_t pos, char *value, char *data) {
+bool set_db_table_record_field_num(dd_table_schema_t *tbl, uint8_t pos, char *invalue, char *outdata) {
 	size_t offset = 0;
 	bool found = false;
 	for(uint8_t i = 0; !found && i <= pos && i < tbl->num_fields; i++) {
 		if ( i == pos ) {
 			found = true;
-			memcpy(data + offset, value, tbl->fields[i]->field_sz);
+			memcpy(outdata + offset, invalue, tbl->fields[i]->field_sz);
+		} else
+			offset += tbl->fields[i]->field_sz;
+	}
+	return found;
+}
+
+bool get_db_table_record_field_num(dd_table_schema_t *tbl, uint8_t pos, char *indata, char *outvalue) {
+	size_t offset = 0;
+	bool found = false;
+	for(uint8_t i = 0; !found && i <= pos && i < tbl->num_fields; i++) {
+		if ( i == pos ) {
+			found = true;
+			memcpy(outvalue + offset, indata, tbl->fields[i]->field_sz);
 		} else
 			offset += tbl->fields[i]->field_sz;
 	}
@@ -296,11 +309,16 @@ bool set_db_table_record_field_num(dd_table_schema_t *tbl, uint8_t pos, char *va
 }
 
 void db_table_record_print(dd_table_schema_t *tbl, char *data) {
+	if ( data == NULL ) {
+		printf("No table data to print\n");
+		return;
+	}
+
 	char buff[128];
 	size_t offset = 0, max_label_size = 0;
 	for(uint8_t i = 0; i < tbl->num_fields; i++)
-		if ( strlen(tbl->fields[i]->field_name) > max_label_size)
-			max_label_size = strlen(tbl->fields[i]->field_name);
+		if ( strlen(tbl->fields[i]->field_name)+1 > max_label_size)
+			max_label_size = strlen(tbl->fields[i]->field_name)+1;
 	char padding[max_label_size+1];
 
 	for(uint8_t i = 0; i < tbl->num_fields; i++) {

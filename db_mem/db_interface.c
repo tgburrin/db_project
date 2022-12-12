@@ -130,17 +130,16 @@ db_indexkey_t *create_key_from_record_data(dd_table_schema_t *tbl, db_index_sche
 	for(uint8_t i = 0; i < idx->num_fields; i++) {
 		idxfield = idx->fields[i];
 		bool found = false;
+
 		offset = 0;
-		for(uint8_t k = 0; k < tbl->num_fields; k++) {
+		for(uint8_t k = 0; !found && k < tbl->num_fields; k++) {
 			tblfield = tbl->fields[k];
 			if ( idxfield == tblfield ) {
 				found = true;
-				break;
+				key->data[i] = (record + offset);
 			} else
 				offset += tblfield->field_sz;
 		}
-		if ( found == true )
-			key->data[i] = record + offset;
 	}
 	return key;
 }

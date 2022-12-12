@@ -13,9 +13,9 @@
 
 #include <zlib.h>
 
+#include <data_dictionary.h>
 #include <journal_tools.h>
 #include <server_tools.h>
-#include <data_dictionary.h>
 #include <db_interface.h>
 #include <utils.h>
 
@@ -60,14 +60,76 @@ bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *
 	return true;
 }
 
+void build_subscription_record(dd_table_schema_t *tbl, cJSON *data, char *subscription) {
+	cJSON *k = NULL;
+	char *fielddata = NULL;
+
+	for(uint8_t i = 0; i < tbl->num_fields; i++) {
+		k = cJSON_GetObjectItemCaseSensitive(data, tbl->fields[i]->field_name);
+		if ( k != NULL ) {
+			if (cJSON_IsNull(k))
+				continue;
+
+			if ( tbl->fields[i]->fieldtype == STR ||
+					tbl->fields[i]->fieldtype == TIMESTAMP ||
+					tbl->fields[i]->fieldtype == UUID ||
+					tbl->fields[i]->fieldtype == BYTES ) {
+				fielddata = malloc(tbl->fields[i]->field_sz);
+				bzero(fielddata, tbl->fields[i]->field_sz);
+				str_to_dd_type(tbl->fields[i], k->valuestring, fielddata);
+				set_db_table_record_field_num(tbl, i, fielddata, subscription);
+				free(fielddata);
+				fielddata = NULL;
+			} else if ( tbl->fields[i]->fieldtype >= I8 && tbl->fields[i]->fieldtype <= UI64 ) {
+				if ( cJSON_IsNumber(k) ) {
+					double d = cJSON_GetNumberValue(k);
+					fielddata = malloc(tbl->fields[i]->field_sz);
+					bzero(fielddata, tbl->fields[i]->field_sz);
+					if ( tbl->fields[i]->fieldtype == I8 && d >= INT8_MIN && d <= INT8_MAX)
+						*fielddata = (int8_t)(d);
+					else if ( tbl->fields[i]->fieldtype == UI8 && d >= 0 && d <= UINT8_MAX)
+						*fielddata = (uint8_t)(d);
+					else if ( tbl->fields[i]->fieldtype == I16 && d >= INT16_MIN && d <= INT16_MAX)
+						*fielddata = (int16_t)(d);
+					else if ( tbl->fields[i]->fieldtype == UI16 && d >= 0 && d <= UINT16_MAX)
+						*fielddata = (uint16_t)(d);
+					else if ( tbl->fields[i]->fieldtype == I32 && d >= INT32_MIN && d <= INT32_MAX)
+						*fielddata = (int32_t)(d);
+					else if ( tbl->fields[i]->fieldtype == UI32 && d >= 0 && d <= UINT32_MAX)
+						*fielddata = (uint32_t)(d);
+					else if ( tbl->fields[i]->fieldtype == I64 && d >= INT64_MIN && d <= INT64_MAX)
+						*fielddata = (int64_t)(d);
+					else if ( tbl->fields[i]->fieldtype == UI64 && d >= 0 && d <= UINT64_MAX)
+						*fielddata = (uint64_t)(d);
+					set_db_table_record_field_num(tbl, i, fielddata, subscription);
+					free(fielddata);
+					fielddata = NULL;
+				}
+			} else if ( tbl->fields[i]->fieldtype == BOOL ) {
+				bool tf = cJSON_IsBool(k) && cJSON_IsTrue(k) ? true : false;
+				if ( cJSON_IsBool(k) )
+					set_db_table_record_field_num(tbl, i, (char *)&tf, subscription);
+			}
+		}
+	}
+}
+
 
 bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	bool rv = false;
-	char *operation = NULL, *lookup_index = NULL, *subscription_id = NULL, *subscription = NULL;
+	char *operation = NULL, *lookup_index = NULL, *subscription_id = NULL, *subscription = NULL, *fielddata;
 	char op, errmsg[129];
+
+	struct timespec start_tm, end_tm;
+	float time_diff;
 
 	journal_t *j = (journal_t *)(argv[0]);
 	db_table_t *tbl = (db_table_t *)(argv[1]);
+
+	dd_datafield_t *subfield = NULL;
+	for(uint8_t i = 0; subfield == NULL && i < tbl->schema->num_fields; i++)
+		if ( strcmp(tbl->schema->fields[i]->field_name, "subscription_id") == 0 )
+			subfield = tbl->schema->fields[i];
 
 	bzero(&errmsg, sizeof(errmsg));
 	cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "operation");
@@ -98,22 +160,15 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 			printf("Running insert on %s\n", tbl->table_name);
 			for(uint8_t i = 0; i < tbl->num_indexes; i++)
 				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
+
 			subscription = new_db_table_record(tbl->schema);
-			subscription_id = NULL;
+			subscription_id = malloc(subfield->field_sz + 1);
+			bzero(subscription_id, subfield->field_sz + 1);
+			//cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(data, "subscription_id"));
 
-			k = cJSON_GetObjectItemCaseSensitive(data, "subscription_id");
-			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL)) {
-				set_db_table_record_field(tbl->schema, "subscription_id", k->valuestring, subscription);
-				subscription_id = k->valuestring;
-			}
-
-			k = cJSON_GetObjectItemCaseSensitive(data, "customer_id");
-			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				set_db_table_record_field(tbl->schema, "customer_id", k->valuestring, subscription);
-
-			k = cJSON_GetObjectItemCaseSensitive(data, "product_type");
-			if ( cJSON_IsString(k) && ((operation = k->valuestring) != NULL))
-				set_db_table_record_field(tbl->schema, "product_type", k->valuestring, subscription);
+			build_subscription_record(tbl->schema, data, subscription);
+			db_table_record_print(tbl->schema, subscription);
+			get_db_table_record_field_num(tbl->schema, 0, subscription, subscription_id);
 
 			rv = subscription_txn_handler(j, tbl, 'i', subscription, NULL, errmsg, sizeof(errmsg) - 1);
 
@@ -123,6 +178,8 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 				cJSON_AddStringToObject(r, "message", errmsg);
 			}
 
+			free(subscription_id);
+			subscription_id = NULL;
 			release_table_record(tbl->schema, subscription);
 			break;
 		case 'u': ;
@@ -130,18 +187,63 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 		case 'd': ;
 			break;
 		case 'q': ;
-			printf("Running insert on %s\n", tbl->table_name);
-			for(uint8_t i = 0; i < tbl->num_indexes; i++)
-				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
+			cJSON *records = cJSON_AddArrayToObject(r, "records");
+			printf("Running query on %s\n", tbl->table_name);
 			subscription = new_db_table_record(tbl->schema);
-			cJSON *recfield = NULL;
-			if ( data->child != NULL ) {
-				recfield = data->child;
-				do {
-					printf("Setting %s\n", recfield->string);
-					//set_db_table_record_field
-				} while ( (recfield = recfield->next) != NULL );
+			build_subscription_record(tbl->schema, data, subscription);
+			db_table_record_print(tbl->schema, subscription);
+
+			db_index_t *lookupidx = NULL;
+			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+				printf("\tIndex -> %s\n", tbl->indexes[i]->index_name);
+				if ( strcmp(tbl->indexes[i]->index_name, lookup_index) == 0 )
+					lookupidx = tbl->indexes[i];
 			}
+
+			if ( lookupidx != NULL && lookupidx->idx_schema->is_unique ) {
+				printf("Running unique index lookup using %s\n", lookupidx->index_name);
+				clock_gettime(CLOCK_REALTIME, &start_tm);
+				db_indexkey_t *findkey = create_key_from_record_data(tbl->schema, lookupidx->idx_schema, subscription);
+				findkey->record = UINT64_MAX;
+				db_indexkey_t *foundkey = dbidx_find_record(lookupidx, findkey);
+				clock_gettime(CLOCK_REALTIME, &end_tm);
+
+				time_diff = end_tm.tv_sec - start_tm.tv_sec;
+				time_diff += (end_tm.tv_nsec / 1000000000.0) - (start_tm.tv_nsec / 1000000000.0);
+				printf("Lookup was %fus\n", time_diff * 1000000.0);
+
+				dbidx_key_print(lookupidx->idx_schema, findkey);
+				if ( foundkey != NULL ) {
+					dbidx_key_print(lookupidx->idx_schema, foundkey);
+
+					char *foundsub = read_db_table_record(tbl->mapped_table, foundkey->record);
+					if ( foundsub != NULL ) {
+						db_table_record_print(tbl->schema, foundsub);
+						char *fieldvalue = NULL;
+						cJSON *recobj = cJSON_CreateObject();
+						size_t offset = 0;
+						for(uint8_t i = 0; i < tbl->schema->num_fields; i++) {
+							dd_datafield_t *recfield = tbl->schema->fields[i];
+							if ( recfield->fieldtype == STR ||
+									recfield->fieldtype == TIMESTAMP ||
+									recfield->fieldtype == UUID ||
+									recfield->fieldtype == BYTES ) {
+								dd_type_to_allocstr(recfield, foundsub + offset, &fieldvalue);
+								cJSON_AddStringToObject(recobj, recfield->field_name, fieldvalue);
+							} else if ( (recfield->fieldtype >= I8 && recfield->fieldtype <= UI64) || recfield->fieldtype == BOOL ) {
+								dd_type_to_allocstr(recfield, foundsub + offset, &fieldvalue);
+								cJSON_AddRawToObject(recobj, recfield->field_name, fieldvalue);
+							}
+							offset += recfield->field_sz;
+							free(fieldvalue);
+						}
+						cJSON_AddItemToArray(records, recobj);
+					}
+				}
+
+				free(findkey);
+			}
+
 			release_table_record(tbl->schema, subscription);
 			break;
 		default: ;
@@ -229,19 +331,22 @@ bool subscription_txn_handler(
 				return false;
 			}
 
+			printf("Checking unique indexes\n");
 			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
 				idx = tbl->indexes[i];
 				if ( !idx->idx_schema->is_unique )
 					continue;
 
-				key = dbidx_allocate_key_with_data(uq_idx->idx_schema);
-				key = create_key_from_record_data(tbl->schema, uq_idx->idx_schema, subrec);
+				k = NULL;
+				printf("Checking index %s\n", idx->index_name);
+				key = dbidx_allocate_key_with_data(idx->idx_schema);
+				key = create_key_from_record_data(tbl->schema, idx->idx_schema, subrec);
 				key->record = UINT64_MAX;
-				k = dbidx_find_record(uq_idx, key);
+				k = dbidx_find_record(idx, key);
 				free(key);
 
 				if ( k != NULL ) {
-					idx_key_to_str(uq_idx->idx_schema, k, msg);
+					idx_key_to_str(idx->idx_schema, k, msg);
 					fprintf(stderr, "ERR: Duplicate record %s\n", msg);
 					if ( errmsg != NULL )
 						snprintf(errmsg, errmsgsz, "ERR: Duplicate record %s", msg);
@@ -249,6 +354,7 @@ bool subscription_txn_handler(
 				}
 			}
 
+			printf("Adding table record\n");
 			uint64_t recnum = UINT64_MAX;
 			if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) == UINT64_MAX ) {
 				fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
@@ -259,8 +365,10 @@ bool subscription_txn_handler(
 
 			char *newrec = read_db_table_record(tbl->mapped_table, recnum);
 			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+				printf("Adding index record for %s\n", tbl->indexes[i]->index_name);
 				db_indexkey_t *newkey = create_key_from_record_data(tbl->schema, tbl->indexes[i]->idx_schema, newrec);
 				newkey->record = recnum;
+				dbidx_key_print(tbl->indexes[i]->idx_schema, newkey);
 				dbidx_add_index_value(tbl->indexes[i], newkey);
 				free(newkey);
 			}
@@ -269,9 +377,6 @@ bool subscription_txn_handler(
 		case 'd':
 			break;
 		case 'u':
-			break;
-		case 'q':
-
 			break;
 		default:
 			fprintf(stderr, "Unknown txn action %c\n", action);
@@ -554,16 +659,14 @@ int main (int argc, char **argv) {
 		//dbidx_print_tree(idx, NULL, &counter);
 	}
 
+	printf("Beginning subscription lookups\n");
 	db_index_t *subidx = find_db_index(tbl, "subscription_id_idx_uq");
 	db_indexkey_t *subkey = dbidx_allocate_key_with_data(subidx->idx_schema);
 	dbidx_set_key_field_value(subidx->idx_schema, "subscription_id", subkey, "su_0k77ufeRLJyzXp");
 	subkey->record = UINT64_MAX;
 
-	db_index_t *custidx = find_db_index(tbl, "customer_id_idx");
-	db_indexkey_t *custkey = dbidx_allocate_key_with_data(custidx->idx_schema);
-	dbidx_set_key_field_value(custidx->idx_schema, "customer_id", custkey, "cus_DLr1bFxFbQzbdS");
-	custkey->record = UINT64_MAX;
-
+	printf("Searching using sub key:\n");
+	dbidx_key_print(subidx->idx_schema, subkey);
 	dbidx_print_index_scan_lookup(subidx, subkey);
 
 	clock_gettime(CLOCK_REALTIME, &start_tm);
@@ -600,7 +703,6 @@ int main (int argc, char **argv) {
 	}
 
 	free(subkey);
-	free(custkey);
 
 	printf("Closing tables\n");
 	close_all_dd_tables(*data_dictionary);

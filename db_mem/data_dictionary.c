@@ -681,7 +681,7 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 
 	switch (field->fieldtype) {
 	case STR:
-		snprintf(str, field->field_sz, "%s", data);
+		snprintf(str, field->field_sz + 1, "%s", data);
 		break;
 	case TIMESTAMP:
 		bzero(&timestampstr, sizeof(timestampstr));
@@ -729,6 +729,61 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 	return rv;
 }
 
+bool dd_type_to_allocstr(dd_datafield_t *field, char *indata, char **outstr) {
+	bool rv = false;
+	char *data = NULL;
+	switch (field->fieldtype) {
+	case STR:
+		data = malloc(field->field_sz + 1);
+		bzero(data, field->field_sz + 1);
+		break;
+	case TIMESTAMP:
+		data = malloc(31);
+		bzero(data, 31);
+		break;
+	case UUID:
+		data = malloc(37);
+		bzero(data, 37);
+		break;
+	case UI64:
+	case I64:
+		data = malloc(21);
+		bzero(data, 21);
+		break;
+	case UI32:
+	case I32:
+		data = malloc(12);
+		bzero(data, 12);
+		break;
+	case UI16:
+	case I16:
+		data = malloc(7);
+		bzero(data, 7);
+		break;
+	case UI8:
+	case I8:
+		data = malloc(5);
+		bzero(data, 5);
+		break;
+	case BOOL:
+		data = malloc(6);
+		bzero(data, 6);
+		break;
+	case BYTES:
+		data = malloc(field->field_sz * 2 + 1);
+		bzero(data, field->field_sz * 2 + 1);
+		break;
+	default:
+		break;
+	}
+
+	if ( data != NULL ) {
+		*outstr = data;
+		return dd_type_to_str(field, indata, data);
+	} else
+		return rv;
+}
+
 bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 	bool rv = false;
 	int ival = 0;
@@ -741,7 +796,8 @@ bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 	switch (field->fieldtype) {
 	case STR:
 		if( strlen(instr) <= field->field_sz ) {
-			snprintf(instr, field->field_sz, "%s", outdata);
+			memcpy(outdata, instr, field->field_sz);
+			//snprintf(outdata, field->field_sz, "%s", instr);
 			rv = true;
 		}
 		break;
@@ -911,6 +967,10 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 	switch (type) {
 	case TIMESTAMP:
 		size = sizeof(struct timespec);
+		break;
+
+	case BOOL:
+		size = sizeof(bool);
 		break;
 
 	case UUID:

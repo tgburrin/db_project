@@ -141,6 +141,7 @@ dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 const char *map_enum_to_name(datatype_t);
 void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
 bool dd_type_to_str(dd_datafield_t *, char *, char *);
+bool dd_type_to_allocstr(dd_datafield_t *, char *, char **);
 bool str_to_dd_type(dd_datafield_t *, char *, char *);
 
 int add_dd_table(data_dictionary_t **, db_table_t *, db_table_t **);
@@ -186,6 +187,7 @@ void release_table_record(dd_table_schema_t *, char *);
 bool set_db_table_record_field(dd_table_schema_t *, char *, char *, char *);
 bool set_db_table_record_field_str(dd_table_schema_t *, char *, char *, char *);
 bool set_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
+bool get_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
 
 void db_table_record_print(dd_table_schema_t *, char *);
 void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);

@@ -2,8 +2,8 @@
 	"handler": "subscriptions",
 	"operation": "q",
 	"operation_flags": [],
-	"lookup_index": "customer_id_idx",
+	"lookup_index": "subscription_id_idx_uq",
 	"data" : {
-		"customer_id": "cus_81By2uHJt79YmN"
+		"subscription_id": "sub_RA9so7ER1PqN_s"
 	}
 }
