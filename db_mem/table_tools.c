@@ -71,7 +71,10 @@ bool open_dd_table(db_table_t *tbl) {
 		close(fd);
 
 		copy_and_replace_file(tpth, DEFAULT_SHM, table_file_name);
-		fd = open(shmfile, O_RDWR, 0640);
+		if ( (fd = open(shmfile, O_RDWR | O_NOATIME, 0640)) < 0 ) {
+			fprintf(stderr, "Error opening shm file %s: %s\n", shmfile, strerror(errno));
+			exit(EXIT_FAILURE);
+		}
 		dbfile = mmap(NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		offset = dbfile;
 		mt = (db_table_t *)offset;
@@ -161,6 +164,114 @@ bool open_dd_table(db_table_t *tbl) {
 	return true;
 }
 
+bool open_dd_disk_table(db_table_t *tbl) {
+	int i = 0;
+	int fd = -1;
+	char *dbfile;
+	db_table_t *mt;
+	char *tpth, *table_file_name;
+
+	table_file_name = malloc(sizeof(char) * (strlen(tbl->table_name) + 5));
+	bzero(table_file_name, sizeof(char) * (strlen(tbl->table_name) + 5));
+	strcat(table_file_name, tbl->table_name);
+	strcat(table_file_name, ".shm");
+
+	if ( (tpth = getenv("TABLE_DATA")) == NULL )
+		tpth = DEFAULT_BASE;
+
+	i = strlen(tpth) + 1 + strlen(tbl->table_name) + 5;
+	char *diskfile = malloc(sizeof(char)*i);
+	bzero(diskfile, sizeof(char)*i);
+
+	strcat(diskfile, tpth);
+	strcat(diskfile, "/");
+	strcat(diskfile, tbl->table_name);
+	strcat(diskfile, ".shm");
+
+	i = access(diskfile, F_OK);
+	if ( i < 0 ) {
+		if ( errno == ENOENT )
+			fprintf(stderr, "%s not found exiting...\n", diskfile);
+		else
+			fprintf(stderr, "File %s could not be accessed\n", diskfile);
+		exit(EXIT_FAILURE);
+	} else if ( i == 0 ) {
+		if ( (fd = open(diskfile, O_RDWR, 0640)) < 0 ) {
+			fprintf(stderr, "Unable to open file %s\n", diskfile);
+			fprintf(stderr, "Error: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	size_t fs = lseek(fd, 0, SEEK_END);
+
+	if ( (dbfile = mmap(NULL, fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED ) {
+		fprintf(stderr, "Unable to map file %s to memory\n", diskfile);
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+		return false;
+
+	}
+
+	char *offset = dbfile;
+	mt = (db_table_t *)offset;
+	offset += sizeof(db_table_t);
+	mt->schema = (dd_table_schema_t *)offset;
+	offset += sizeof(dd_table_schema_t);
+
+	if ( mt->total_record_count == 0 ||
+		(mt->total_record_count == tbl->total_record_count && mt->schema->record_size == tbl->schema->record_size)) {
+
+		int field_count = tbl->schema->field_count;
+		if ( mt->schema->field_count > 0 )
+			field_count = mt->schema->field_count;
+
+		/* this is ugly, but works for what it needs to do */
+		mt->schema->fields = (dd_datafield_t **)offset;
+		offset += sizeof(dd_datafield_t **);
+		*mt->schema->fields = (dd_datafield_t *)offset;
+		offset += sizeof(dd_datafield_t *) * field_count;
+		for(uint8_t i = 0; i < field_count; i++) {
+			mt->schema->fields[i] = (dd_datafield_t *)offset;
+			offset += sizeof(dd_datafield_t);
+		}
+
+		mt->used_slots = (uint64_t *)(offset);
+		if ( mt->total_record_count > 0 )
+			offset += sizeof(uint64_t) * mt->total_record_count;
+		else
+			offset += sizeof(uint64_t) * tbl->total_record_count;
+
+		mt->free_slots = (uint64_t *)(offset);
+		if ( mt->total_record_count > 0 )
+			offset += sizeof(uint64_t) * mt->total_record_count;
+		else
+			offset += sizeof(uint64_t) * tbl->total_record_count;
+
+		mt->data = (void *)(offset);
+	} else if ( mt->total_record_count != tbl->total_record_count ||
+				mt->schema->record_size != tbl->schema->record_size) {
+		// remap event
+		printf("Remap event\n");
+		printf("Total records on disk %" PRIu64 " sized to %" PRIu64 "\n", mt->total_record_count, tbl->total_record_count);
+		printf("Record size on disk %" PRIu16 " sized to %" PRIu16 "\n", mt->schema->record_size, tbl->schema->record_size);
+	} else {
+		// unexpected failure
+		printf("Unexpected failure\n");
+	}
+
+	char ts[31];
+	format_timestamp(&mt->closedtm, ts);
+	printf("Opened table %s last closed at %s\n", mt->table_name, ts);
+
+	mt->filedes = fd;
+	mt->filesize = fs;
+
+	tbl->mapped_table = mt;
+	free(diskfile);
+	free(table_file_name);
+	return true;
+}
+
 bool close_dd_table(db_table_t *tbl) {
 	int fd = tbl->filedes;
 	size_t fs = tbl->filesize;
@@ -187,6 +298,29 @@ bool close_dd_table(db_table_t *tbl) {
 
 	move_and_replace_file(DEFAULT_SHM, tpth, tn);
 
+	free(tn);
+	return true;
+}
+
+bool close_dd_disk_table(db_table_t *tbl) {
+	int fd = tbl->filedes;
+	size_t fs = tbl->filesize;
+	size_t tnsz = sizeof(char) * strlen(tbl->table_name) + 5;
+
+	char *tn = malloc(tnsz);
+	bzero(tn, tnsz);
+	strcpy(tn, tbl->table_name);
+	strcat(tn, ".shm");
+
+	clock_gettime(CLOCK_REALTIME, &tbl->mapped_table->closedtm);
+	char ts[31];
+	format_timestamp(&tbl->mapped_table->closedtm, ts);
+	printf("Closing %s at %s\n", tn, ts);
+
+	munmap(tbl->mapped_table, fs);
+	close(fd);
+
+	tbl->mapped_table = NULL;
 	free(tn);
 	return true;
 }

@@ -8,11 +8,16 @@
 #ifndef DATA_DICTIONARY_H_
 #define DATA_DICTIONARY_H_
 
+#define _GNU_SOURCE 1
+
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <inttypes.h>
 #include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <cjson/cJSON.h>
 #include "utils.h"
@@ -176,7 +181,9 @@ signed char ts_compare (struct timespec *, struct timespec *);
 
 /* Table Functions - table_tools.c */
 bool open_dd_table(db_table_t *tablemeta);
+bool open_dd_disk_table(db_table_t *tablemeta);
 bool close_dd_table(db_table_t *tablemeta);
+bool close_dd_disk_table(db_table_t *tablemeta);
 
 uint64_t add_db_table_record(db_table_t *, char *);
 bool delete_db_table_record(db_table_t *, uint64_t, char *);
@@ -239,7 +246,6 @@ void dbidx_print_tree(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
 
-void dbidx_read_file_records(db_index_t *idx);
 void dbidx_write_file_records(db_index_t *);
 void dbidx_write_file_keys(db_index_t *);
 

@@ -1,0 +1,24 @@
+{
+	"fields": {
+		"client_id":              { "type": "UUID" },
+		"created_dt":             { "type": "TIMESTAMP" },
+		"client_username":	  { "type": "STR", "size": 20 },
+		"client_name":		  { "type": "STR", "size": 32 }
+	},
+	"tables": {
+		"test_table": {
+			"size": 550000000,
+			"fields": [
+				"client_id",
+				"client_username"
+			],
+			"indexes": {
+				"client_id_id_idx_uq": {
+					"order": 7,
+					"unique": true,
+					"fields": ["client_id"]
+				}
+			}
+		}
+	}
+}

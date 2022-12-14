@@ -1,0 +1,9 @@
+{
+	"handler": "clients",
+	"operation": "q",
+	"operation_flags": [],
+	"lookup_index": "client_id_id_idx_uq",
+	"data" : {
+		"client_id": "4b28bde0-fc71-4a43-9d2a-c1b897f224b5"
+	}
+}

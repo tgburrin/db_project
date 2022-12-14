@@ -487,7 +487,8 @@ bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 			index_order_t nodeidx = 0;
 			uint64_t cr = key->record;
 			key->record = UINT64_MAX;
-			if ( dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0 ) {
+			if ( dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0  &&
+					dbidx_compare_keys(idx->idx_schema, current->children[nodeidx], key) == 0 ) {
 				key->record = cr;
 				return rv;
 			} else
@@ -496,6 +497,7 @@ bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 		dbidx_add_node_value(idx->idx_schema, current, key);
 		rv = true;
 	}
+
 	return rv;
 }
 
@@ -1009,58 +1011,6 @@ void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key) {
 		printf("Key %s could not be found in %" PRIu64 " leaves\n", msg, leafcounter);
 	}
 }
-
-/*
-void dbidx_read_index_from_file(db_index_t *idx) {
-	char *ipth;
-	if ( (ipth = getenv("TABLE_DATA")) == NULL )
-		ipth = DEFAULT_BASE;
-
-	int fd = -1;
-	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
-
-	// path + '/' + name + '.idx' + \0
-	char *idxfile = malloc(sz);
-	bzero(idxfile, sz);
-
-	strcat(idxfile, ipth);
-	strcat(idxfile, "/");
-	strcat(idxfile, idx->index_name);
-	strcat(idxfile, ".idx");
-
-	printf("Reading keys from file %s\n", idxfile);
-	int i = access(idxfile, F_OK);
-	if ( i < 0 && errno != ENOENT ) {
-		fprintf(stderr, "Error: %s\n", strerror(errno));
-	}
-	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
-		uint16_t recordsize = 0;
-		uint64_t recordcount = 0;
-		uint64_t counter = 0;
-
-		if ( read(fd, &recordsize, sizeof(uint16_t)) != sizeof(uint16_t) ) {
-			printf("Incomplete read of recordsize\n");
-		}
-		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) ) {
-			printf("Incomplete read of recordcount\n");
-		}
-		printf("%" PRIu64 " records of size %"PRIu16" exist in index file\n", recordcount, recordsize);
-		void *buff = malloc(sizeof(char)*recordsize);
-		for(counter = 0; counter < recordcount; counter++) {
-			bzero(buff, sizeof(char)*recordsize);
-			if ( read(fd, buff, recordsize) != recordsize ) {
-				// an index needs to be remapped in some way
-			} else {
-				add_index_value(idx, &idx->root_node, buff);
-			}
-		}
-		free(buff);
-	} else
-		fprintf(stderr, "Error: %s\n", strerror(errno));
-
-	free(idxfile);
-}
-*/
 
 void dbidx_write_file_records(db_index_t *idx) {
 	int fd = -1;
