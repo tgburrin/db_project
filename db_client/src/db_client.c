@@ -141,10 +141,10 @@ char *read_json_file(char *filename) {
 }
 
 int main(int argc, char **argv) {
-	int client_sd, rv = EXIT_FAILURE;
+	int client_sd, c = 0, rv = EXIT_FAILURE;
 	char *hostname = NULL, *filename = NULL;
 	uint16_t port = 0, errs = 0, msglen = 0;
-	char stx = 2, c;
+	char stx = 2;
 
 	while ((c = getopt(argc, argv, "h:p:f:")) != -1) {
 		switch(c) {

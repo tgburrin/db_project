@@ -905,8 +905,7 @@ void subscription_lookup_tests(data_dictionary_t **data_dictionary) {
 }
 
 int main (int argc, char **argv) {
-	int errs = 0;
-	char c;
+	int errs = 0, c;
 	char *dd_filename = NULL, *datafile = NULL;
 	data_dictionary_t **data_dictionary = NULL;
 
