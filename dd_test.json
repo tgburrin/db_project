@@ -19,10 +19,11 @@
 		"subscription_lifecycle": { "type": "STR", "size": 16 },
 		"churn_type":             { "type": "STR", "size": 16 },
 
+		"client_id":              { "type": "UUID" },
 		"created_dt":             { "type": "TIMESTAMP" },
-		"record_counter":	  { "type": "UI64" },
-		"record_msg":		  { "type": "STR", "size": 128 },
-		"record_id":              { "type": "UUID" }
+		"client_username":	  { "type": "STR", "size": 20 },
+		"client_name":		  { "type": "STR", "size": 32 },
+		"record_counter":	  { "type": "UI64" }
 	},
 	"tables": {
 		"subscriptions": {
@@ -62,15 +63,15 @@
 		"test_table": {
 			"size": 10,
 			"fields": [
-				"record_id",
+				"client_id",
 				"created_dt",
-				"record_msg",
-				"record_counter"
+				"client_username",
+				"client_name"
 			],
 			"indexes": {
-				"record_id_idx_uq": {
+				"client_id_id_idx_uq": {
 					"unique": true,
-					"fields": ["record_id"]
+					"fields": ["client_id"]
 				}
 			}
 		}

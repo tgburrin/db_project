@@ -8,11 +8,16 @@
 #ifndef DATA_DICTIONARY_H_
 #define DATA_DICTIONARY_H_
 
+#define _GNU_SOURCE 1
+
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <inttypes.h>
 #include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <cjson/cJSON.h>
 #include "utils.h"
@@ -141,6 +146,7 @@ dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 const char *map_enum_to_name(datatype_t);
 void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
 bool dd_type_to_str(dd_datafield_t *, char *, char *);
+bool dd_type_to_allocstr(dd_datafield_t *, char *, char **);
 bool str_to_dd_type(dd_datafield_t *, char *, char *);
 
 int add_dd_table(data_dictionary_t **, db_table_t *, db_table_t **);
@@ -175,7 +181,9 @@ signed char ts_compare (struct timespec *, struct timespec *);
 
 /* Table Functions - table_tools.c */
 bool open_dd_table(db_table_t *tablemeta);
+bool open_dd_disk_table(db_table_t *tablemeta);
 bool close_dd_table(db_table_t *tablemeta);
+bool close_dd_disk_table(db_table_t *tablemeta);
 
 uint64_t add_db_table_record(db_table_t *, char *);
 bool delete_db_table_record(db_table_t *, uint64_t, char *);
@@ -186,6 +194,7 @@ void release_table_record(dd_table_schema_t *, char *);
 bool set_db_table_record_field(dd_table_schema_t *, char *, char *, char *);
 bool set_db_table_record_field_str(dd_table_schema_t *, char *, char *, char *);
 bool set_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
+bool get_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
 
 void db_table_record_print(dd_table_schema_t *, char *);
 void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);
@@ -237,7 +246,6 @@ void dbidx_print_tree(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
 
-void dbidx_read_file_records(db_index_t *idx);
 void dbidx_write_file_records(db_index_t *);
 void dbidx_write_file_keys(db_index_t *);
 

@@ -20,6 +20,9 @@ bool load_all_dd_tables(data_dictionary_t *);
 bool close_all_dd_tables(data_dictionary_t *);
 
 bool load_dd_index_from_table(db_table_t *);
+bool load_dd_index_from_file(db_table_t *);
+
+bool load_dd_indexes(db_table_t *);
 
 /* layers on top of the table functions that also maintain indexes */
 bool add_db_record(db_table_t *, char *, uint64_t *);
@@ -37,6 +40,9 @@ bool set_table_field_value_timestamp(dd_table_schema_t *, char *, struct timespe
 bool set_table_field_value_bool(dd_table_schema_t *, char *, bool);
 bool set_table_field_value_uint(dd_table_schema_t *, char *, uint64_t);
 bool set_table_field_value_int(dd_table_schema_t *, char *, int64_t);
+
+bool read_index_file_records(db_table_t *tbl, db_index_t *idx);
+bool read_index_table_records(db_table_t *tbl, db_index_t *idx);
 
 /*
 void print_db_record(db_table_t *, uint64_t, char **);

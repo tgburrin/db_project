@@ -393,12 +393,13 @@ data_dictionary_t **build_dd_from_dat(char *filename) {
 void print_data_dictionary(data_dictionary_t *data_dictionary) {
 	printf("Field list:\n");
 	for(uint32_t i = 0; i<data_dictionary->num_fields; i++)
-		printf("%s\n", data_dictionary->fields[i].field_name);
+		printf("%s (%d bytes)\n", data_dictionary->fields[i].field_name, data_dictionary->fields[i].field_sz);
 
 	printf("Schemas:\n");
 	for(uint32_t i = 0; i<data_dictionary->num_schemas; i++) {
 		dd_table_schema_t *s = &data_dictionary->schemas[i];
-		printf("%s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		printf("%s (%d fields total of %ld bytes)\n",
+				s->schema_name, s->field_count, sizeof(dd_table_schema_t) + sizeof(dd_datafield_t *) * s->num_fields);
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
 			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
@@ -413,8 +414,8 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		db_table_t *t = &data_dictionary->tables[i];
 		dd_table_schema_t *s = t->schema;
 
-		printf("%s\n", t->table_name);
-		printf("\tschema %s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		printf("%s (%" PRIu64 " records)\n", t->table_name, t->total_record_count);
+		printf("\tschema %s (record is %d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
 			printf("\t\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
@@ -425,7 +426,8 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		printf("\tIndexes:\n");
 		for(int k = 0; k < t->num_indexes; k++) {
 			db_index_schema_t *idx = t->indexes[k]->idx_schema;
-			printf("\t\t%s (%s of order %d): ", t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
+			printf("\t\t%s (%s of order %d - %ld bytes): ",
+					t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order, sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields);
 			for(int f = 0; f < idx->num_fields; f++)
 				printf("%s%s", f == 0 ? "" : ", ", idx->fields[f]->field_name);
 			printf("\n");
@@ -681,7 +683,7 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 
 	switch (field->fieldtype) {
 	case STR:
-		snprintf(str, field->field_sz, "%s", data);
+		snprintf(str, field->field_sz + 1, "%s", data);
 		break;
 	case TIMESTAMP:
 		bzero(&timestampstr, sizeof(timestampstr));
@@ -729,6 +731,61 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 	return rv;
 }
 
+bool dd_type_to_allocstr(dd_datafield_t *field, char *indata, char **outstr) {
+	bool rv = false;
+	char *data = NULL;
+	switch (field->fieldtype) {
+	case STR:
+		data = malloc(field->field_sz + 1);
+		bzero(data, field->field_sz + 1);
+		break;
+	case TIMESTAMP:
+		data = malloc(31);
+		bzero(data, 31);
+		break;
+	case UUID:
+		data = malloc(37);
+		bzero(data, 37);
+		break;
+	case UI64:
+	case I64:
+		data = malloc(21);
+		bzero(data, 21);
+		break;
+	case UI32:
+	case I32:
+		data = malloc(12);
+		bzero(data, 12);
+		break;
+	case UI16:
+	case I16:
+		data = malloc(7);
+		bzero(data, 7);
+		break;
+	case UI8:
+	case I8:
+		data = malloc(5);
+		bzero(data, 5);
+		break;
+	case BOOL:
+		data = malloc(6);
+		bzero(data, 6);
+		break;
+	case BYTES:
+		data = malloc(field->field_sz * 2 + 1);
+		bzero(data, field->field_sz * 2 + 1);
+		break;
+	default:
+		break;
+	}
+
+	if ( data != NULL ) {
+		*outstr = data;
+		return dd_type_to_str(field, indata, data);
+	} else
+		return rv;
+}
+
 bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 	bool rv = false;
 	int ival = 0;
@@ -741,7 +798,8 @@ bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 	switch (field->fieldtype) {
 	case STR:
 		if( strlen(instr) <= field->field_sz ) {
-			snprintf(instr, field->field_sz, "%s", outdata);
+			memcpy(outdata, instr, field->field_sz);
+			//snprintf(outdata, field->field_sz, "%s", instr);
 			rv = true;
 		}
 		break;
@@ -911,6 +969,10 @@ uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 	switch (type) {
 	case TIMESTAMP:
 		size = sizeof(struct timespec);
+		break;
+
+	case BOOL:
+		size = sizeof(bool);
 		break;
 
 	case UUID:

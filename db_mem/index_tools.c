@@ -74,7 +74,8 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 
 	/* This is kind of an unsafe strategy, but it should work */
 	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields + sizeof(char *) * idx->record_size;
-	//printf("Allocating a total of %ld bytes (%ld %ld %ld)\n", keysz, sizeof(db_indexkey_t), sizeof(char *) * idx->fields_sz, sizeof(char *) * idx->record_size);
+	//printf("Allocating a total of %ld bytes (%ld %ld %ld)\n", keysz, sizeof(db_indexkey_t), sizeof(char *) * idx->num_fields, sizeof(char *) * idx->record_size);
+
 	rv = malloc(keysz);
 	bzero(rv, keysz);
 	rv->keysz = keysz;
@@ -135,10 +136,7 @@ bool dbidx_set_key_field_value(db_index_schema_t *idx, char *field_name, db_inde
 		f = idx->fields[i];
 		if ( strcmp(f->field_name, field_name) == 0 ) {
 			bzero(key->data[i], f->field_sz);
-			size_t fieldsz = f->field_sz;
-			if ( f->fieldtype == STR )
-				fieldsz = strlen(value);
-			memcpy(key->data[i], value, fieldsz);
+			memcpy(key->data[i], value, f->field_sz);
 			return true;
 		}
 	}
@@ -342,8 +340,10 @@ db_indexkey_t *dbidx_find_prev_record(db_index_t *idx, db_indexkey_t *findkey, d
 
 signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
 	signed char rv = 0;
-	if ( idxnode->num_children == 0 )
-		return rv;
+	if ( idxnode->num_children == 0 ) {
+		*index = 0;
+		return -1;
+	}
 
 	int64_t i = idxnode->num_children / 2;
 
@@ -398,8 +398,10 @@ signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode,
 
 signed char dbidx_find_node_index_reverse(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
 	signed char rv = 0;
-	if ( idxnode->num_children == 0 )
-		return rv;
+	if ( idxnode->num_children == 0 ) {
+		*index = 0;
+		return 1;
+	}
 
 	int64_t i = idxnode->num_children / 2;
 
@@ -485,24 +487,21 @@ bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 			index_order_t nodeidx = 0;
 			uint64_t cr = key->record;
 			key->record = UINT64_MAX;
-			bool found = 0;
-			found = dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0;
-			if ( found )
+			if ( dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0  &&
+					dbidx_compare_keys(idx->idx_schema, current->children[nodeidx], key) == 0 ) {
+				key->record = cr;
 				return rv;
-			else
+			} else
 				key->record = cr;
 		}
 		dbidx_add_node_value(idx->idx_schema, current, key);
 		rv = true;
 	}
+
 	return rv;
 }
 
 bool dbidx_remove_index_value (db_index_t *idx, db_indexkey_t *key) {
-	char msg[128];
-	idx_key_to_str(idx->idx_schema, key, msg);
-	printf("Removing %s(%" PRIu64 ")\n", msg, key->record);
-
 	db_idxnode_t *leaf_node = dbidx_find_node(idx->idx_schema, idx->root_node, key);
 
 	bool success = dbidx_remove_node_value(idx->idx_schema, leaf_node, key);
@@ -880,8 +879,8 @@ void dbidx_key_print(db_index_schema_t *idx, db_indexkey_t *key) {
 	char buff[128];
 	size_t offset = 0, max_label_size = strlen("record_number");
 	for(uint8_t i = 0; i < idx->num_fields; i++)
-		if ( strlen(idx->fields[i]->field_name) > max_label_size)
-			max_label_size = strlen(idx->fields[i]->field_name);
+		if ( strlen(idx->fields[i]->field_name)+1 > max_label_size)
+			max_label_size = strlen(idx->fields[i]->field_name)+1;
 
 	char padding[max_label_size+1];
 
@@ -1012,58 +1011,6 @@ void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key) {
 		printf("Key %s could not be found in %" PRIu64 " leaves\n", msg, leafcounter);
 	}
 }
-
-/*
-void dbidx_read_index_from_file(db_index_t *idx) {
-	char *ipth;
-	if ( (ipth = getenv("TABLE_DATA")) == NULL )
-		ipth = DEFAULT_BASE;
-
-	int fd = -1;
-	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
-
-	// path + '/' + name + '.idx' + \0
-	char *idxfile = malloc(sz);
-	bzero(idxfile, sz);
-
-	strcat(idxfile, ipth);
-	strcat(idxfile, "/");
-	strcat(idxfile, idx->index_name);
-	strcat(idxfile, ".idx");
-
-	printf("Reading keys from file %s\n", idxfile);
-	int i = access(idxfile, F_OK);
-	if ( i < 0 && errno != ENOENT ) {
-		fprintf(stderr, "Error: %s\n", strerror(errno));
-	}
-	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
-		uint16_t recordsize = 0;
-		uint64_t recordcount = 0;
-		uint64_t counter = 0;
-
-		if ( read(fd, &recordsize, sizeof(uint16_t)) != sizeof(uint16_t) ) {
-			printf("Incomplete read of recordsize\n");
-		}
-		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) ) {
-			printf("Incomplete read of recordcount\n");
-		}
-		printf("%" PRIu64 " records of size %"PRIu16" exist in index file\n", recordcount, recordsize);
-		void *buff = malloc(sizeof(char)*recordsize);
-		for(counter = 0; counter < recordcount; counter++) {
-			bzero(buff, sizeof(char)*recordsize);
-			if ( read(fd, buff, recordsize) != recordsize ) {
-				// an index needs to be remapped in some way
-			} else {
-				add_index_value(idx, &idx->root_node, buff);
-			}
-		}
-		free(buff);
-	} else
-		fprintf(stderr, "Error: %s\n", strerror(errno));
-
-	free(idxfile);
-}
-*/
 
 void dbidx_write_file_records(db_index_t *idx) {
 	int fd = -1;
