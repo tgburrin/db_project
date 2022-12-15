@@ -393,12 +393,13 @@ data_dictionary_t **build_dd_from_dat(char *filename) {
 void print_data_dictionary(data_dictionary_t *data_dictionary) {
 	printf("Field list:\n");
 	for(uint32_t i = 0; i<data_dictionary->num_fields; i++)
-		printf("%s\n", data_dictionary->fields[i].field_name);
+		printf("%s (%d bytes)\n", data_dictionary->fields[i].field_name, data_dictionary->fields[i].field_sz);
 
 	printf("Schemas:\n");
 	for(uint32_t i = 0; i<data_dictionary->num_schemas; i++) {
 		dd_table_schema_t *s = &data_dictionary->schemas[i];
-		printf("%s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		printf("%s (%d fields total of %ld bytes)\n",
+				s->schema_name, s->field_count, sizeof(dd_table_schema_t) + sizeof(dd_datafield_t *) * s->num_fields);
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
 			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
@@ -413,8 +414,8 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		db_table_t *t = &data_dictionary->tables[i];
 		dd_table_schema_t *s = t->schema;
 
-		printf("%s\n", t->table_name);
-		printf("\tschema %s (%d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
+		printf("%s (%" PRIu64 " records)\n", t->table_name, t->total_record_count);
+		printf("\tschema %s (record is %d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
 			printf("\t\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
@@ -425,7 +426,8 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		printf("\tIndexes:\n");
 		for(int k = 0; k < t->num_indexes; k++) {
 			db_index_schema_t *idx = t->indexes[k]->idx_schema;
-			printf("\t\t%s (%s of order %d): ", t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order);
+			printf("\t\t%s (%s of order %d - %ld bytes): ",
+					t->indexes[k]->index_name, idx->is_unique ? "unique" : "non-unique", idx->index_order, sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields);
 			for(int f = 0; f < idx->num_fields; f++)
 				printf("%s%s", f == 0 ? "" : ", ", idx->fields[f]->field_name);
 			printf("\n");

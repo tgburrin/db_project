@@ -941,6 +941,7 @@ int main (int argc, char **argv) {
 	if ( errs > 0 )
 		exit(EXIT_FAILURE);
 
+	//mlockall(MCL_FUTURE);
 	print_data_dictionary(*data_dictionary);
 
 	if ( !load_all_dd_tables(*data_dictionary) )
