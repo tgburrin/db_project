@@ -337,12 +337,11 @@ bool client_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char 
 				clock_gettime(CLOCK_REALTIME, &start_tm);
 				db_indexkey_t *findkey = create_key_from_record_data(tbl->schema, lookupidx->idx_schema, client_record);
 				findkey->record = RECORD_NUM_MAX;
+				//dbidx_key_print(lookupidx->idx_schema, findkey);
+
 				db_indexkey_t *foundkey = dbidx_find_record(lookupidx, findkey);
 
-				//dbidx_key_print(lookupidx->idx_schema, findkey);
 				if ( foundkey != NULL ) {
-					//dbidx_key_print(lookupidx->idx_schema, foundkey);
-
 					char *foundsub = read_db_table_record(tbl->mapped_table, foundkey->record);
 					if ( foundsub != NULL ) {
 						clock_gettime(CLOCK_REALTIME, &end_tm);
