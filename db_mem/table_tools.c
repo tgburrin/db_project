@@ -22,7 +22,7 @@ bool open_dd_table(db_table_t *tbl) {
 	if ( (tpth = getenv("TABLE_DATA")) == NULL )
 		tpth = DEFAULT_BASE;
 
-	size_t data_size = tbl->schema->record_size * tbl->total_record_count;
+	size_t data_size = (uint64_t)tbl->schema->record_size * (uint64_t)tbl->total_record_count;
 	size_t metadatasize =
 			sizeof(db_table_t) +
 			sizeof(dd_table_schema_t) +
@@ -98,24 +98,24 @@ bool open_dd_table(db_table_t *tbl) {
 			offset += sizeof(dd_datafield_t);
 		}
 
-		mt->used_slots = (uint64_t *)(offset);
+		mt->used_slots = (record_num_t *)(offset);
 		if ( mt->total_record_count > 0 )
-			offset += sizeof(uint64_t) * mt->total_record_count;
+			offset += sizeof(record_num_t) * mt->total_record_count;
 		else
-			offset += sizeof(uint64_t) * tbl->total_record_count;
+			offset += sizeof(record_num_t) * tbl->total_record_count;
 
-		mt->free_slots = (uint64_t *)(offset);
+		mt->free_slots = (record_num_t *)(offset);
 		if ( mt->total_record_count > 0 )
-			offset += sizeof(uint64_t) * mt->total_record_count;
+			offset += sizeof(record_num_t) * mt->total_record_count;
 		else
-			offset += sizeof(uint64_t) * tbl->total_record_count;
+			offset += sizeof(record_num_t) * tbl->total_record_count;
 
 		mt->data = (void *)(offset);
 	} else if ( mt->total_record_count != tbl->total_record_count ||
 				mt->schema->record_size != tbl->schema->record_size) {
 		// remap event
 		printf("Remap event\n");
-		printf("Total records on disk %" PRIu64 " sized to %" PRIu64 "\n", mt->total_record_count, tbl->total_record_count);
+		printf("Total records on disk %" PRIu64 " sized to %" PRIu64 "\n", (uint64_t)mt->total_record_count, (uint64_t)tbl->total_record_count);
 		printf("Record size on disk %" PRIu16 " sized to %" PRIu16 "\n", mt->schema->record_size, tbl->schema->record_size);
 	} else {
 		// unexpected failure
@@ -145,7 +145,7 @@ bool open_dd_table(db_table_t *tbl) {
 
 		for(uint64_t i = 0; i < mt->total_record_count; i++) {
 			mt->free_slots[mt->free_record_slot - i] = i;
-			mt->used_slots[i] = UINT64_MAX;
+			mt->used_slots[i] = RECORD_NUM_MAX;
 		}
 
 	} else {
@@ -235,24 +235,24 @@ bool open_dd_disk_table(db_table_t *tbl) {
 			offset += sizeof(dd_datafield_t);
 		}
 
-		mt->used_slots = (uint64_t *)(offset);
+		mt->used_slots = (record_num_t *)(offset);
 		if ( mt->total_record_count > 0 )
-			offset += sizeof(uint64_t) * mt->total_record_count;
+			offset += sizeof(record_num_t) * mt->total_record_count;
 		else
-			offset += sizeof(uint64_t) * tbl->total_record_count;
+			offset += sizeof(record_num_t) * tbl->total_record_count;
 
-		mt->free_slots = (uint64_t *)(offset);
+		mt->free_slots = (record_num_t *)(offset);
 		if ( mt->total_record_count > 0 )
-			offset += sizeof(uint64_t) * mt->total_record_count;
+			offset += sizeof(record_num_t) * mt->total_record_count;
 		else
-			offset += sizeof(uint64_t) * tbl->total_record_count;
+			offset += sizeof(record_num_t) * tbl->total_record_count;
 
 		mt->data = (void *)(offset);
 	} else if ( mt->total_record_count != tbl->total_record_count ||
 				mt->schema->record_size != tbl->schema->record_size) {
 		// remap event
 		printf("Remap event\n");
-		printf("Total records on disk %" PRIu64 " sized to %" PRIu64 "\n", mt->total_record_count, tbl->total_record_count);
+		printf("Total records on disk %" PRIu64 " sized to %" PRIu64 "\n", (uint64_t)mt->total_record_count, (uint64_t)tbl->total_record_count);
 		printf("Record size on disk %" PRIu16 " sized to %" PRIu16 "\n", mt->schema->record_size, tbl->schema->record_size);
 	} else {
 		// unexpected failure
@@ -325,34 +325,34 @@ bool close_dd_disk_table(db_table_t *tbl) {
 	return true;
 }
 
-uint64_t add_db_table_record(db_table_t *tbl, char *record) {
+record_num_t add_db_table_record(db_table_t *tbl, char *record) {
 	char *sr = 0;
-	uint64_t slot = UINT64_MAX;
-	uint64_t cs = tbl->free_record_slot;
+	record_num_t slot = RECORD_NUM_MAX;
+	record_num_t cs = tbl->free_record_slot;
 
 	if ( cs < tbl->total_record_count ) {
 		slot = tbl->free_slots[cs];
-		sr = (char *)(tbl->data + (slot * tbl->schema->record_size));
+		sr = tbl->data + (uintptr_t)slot * (uintptr_t)tbl->schema->record_size;
 		memcpy(sr, record, tbl->schema->record_size);
 
 		tbl->used_slots[slot] = cs;
 		tbl->free_slots[cs] = tbl->total_record_count;
-		tbl->free_record_slot = cs == 0 ? UINT64_MAX : cs - 1;
+		tbl->free_record_slot = cs == 0 ? RECORD_NUM_MAX : cs - 1;
 	}
 	return slot;
 }
 
-bool delete_db_table_record(db_table_t *tbl, uint64_t slot, char *deleted_record) {
+bool delete_db_table_record(db_table_t *tbl, record_num_t slot, char *deleted_record) {
 	bool rv = false;
 	char *target = NULL;
 
-	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX) {
-		target = (char *)(tbl->data + (slot * tbl->schema->record_size));
+	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < RECORD_NUM_MAX) {
+		target = tbl->data + (uintptr_t)slot * (uintptr_t)tbl->schema->record_size;
 		if ( deleted_record != NULL )
 			memcpy(deleted_record, target, tbl->schema->record_size);
-		bzero(target, tbl->schema->record_size);
 
-		tbl->used_slots[slot] = UINT64_MAX;
+		bzero(target, tbl->schema->record_size);
+		tbl->used_slots[slot] = RECORD_NUM_MAX;
 		tbl->free_record_slot++;
 		tbl->free_slots[tbl->free_record_slot] = slot;
 		rv = true;
@@ -361,10 +361,10 @@ bool delete_db_table_record(db_table_t *tbl, uint64_t slot, char *deleted_record
 	return rv;
 }
 
-char *read_db_table_record(db_table_t *tbl, uint64_t slot) {
+char *read_db_table_record(db_table_t *tbl, record_num_t slot) {
 	char *record = NULL;
-	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < UINT64_MAX)
-		record = (char *)(tbl->data + (slot * tbl->schema->record_size));
+	if ( slot < tbl->total_record_count && tbl->used_slots[slot] < RECORD_NUM_MAX)
+		record = tbl->data + (uintptr_t)slot * (uintptr_t)tbl->schema->record_size;
 
 	return record;
 }
