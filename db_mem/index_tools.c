@@ -234,10 +234,10 @@ db_indexkey_t *dbidx_find_record(db_index_t *idx, db_indexkey_t *find_rec) {
 
 db_indexkey_t *dbidx_find_first_record(db_index_t *idx, db_indexkey_t *findkey, db_index_position_t *currentpos) {
 	db_indexkey_t *rv = NULL;
-
-	db_idxnode_t *idxnode = dbidx_find_node(idx->idx_schema, idx->root_node, findkey);
 	index_order_t index = 0;
 	signed char found = 0;
+
+	db_idxnode_t *idxnode = dbidx_find_node(idx->idx_schema, idx->root_node, findkey);
 
 	// edge case, empty index
 	if ( idxnode->num_children == 0 )
@@ -355,6 +355,12 @@ signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode,
 		*index = 0;
 		return -1;
 	}
+
+	/* DEBUG
+	printf("Finding index on current %s (%d children):\n", idxnode->parent == idxnode ? "root" : idxnode->is_leaf ? "leaf" : "node", idxnode->num_children);
+	for(uint8_t i = 0; i < idxnode->num_children; i++ )
+		dbidx_key_print(idx, idxnode->children[i]);
+	*/
 
 	int16_t i = idxnode->num_children / 2;
 
@@ -529,7 +535,7 @@ db_idxnode_t *dbidx_add_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode
 	for( i=0; i < idxnode->num_children && dbidx_compare_keys(idx, idxnode->children[i], key) < 0; i++ );
 
 	if(i < idxnode->num_children) {
-		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(char *) * (idxnode->num_children - i));
+		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(char *) * ((uintptr_t)idxnode->num_children - i));
 	} else if ( i == idxnode->num_children ) {
 		dbidx_update_max_value(idx, idxnode->parent, idxnode, key);
 	}
@@ -546,6 +552,7 @@ db_idxnode_t *dbidx_add_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode
 	} else {
 		db_indexkey_t *new_key = dbidx_allocate_key(idx);
 		dbidx_copy_key(idx, key, new_key);
+		new_key->childnode = idxnode;
 		idxnode->children[i] = new_key;
 	}
 
@@ -1058,7 +1065,7 @@ void dbidx_write_file_records(db_index_t *idx) {
 		write(fd, &recordcount, sizeof(recordcount));
 		while ( cn != NULL ) {
 			for(i = 0; i < cn->num_children; i++) {
-				write(fd, &cn->children[i]->record, sizeof(uint64_t));
+				write(fd, &cn->children[i]->record, sizeof(record_num_t));
 				recordcount++;
 			}
 			cn = cn->next;

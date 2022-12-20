@@ -238,34 +238,25 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 		return false;
 	}
 
-	record_num_t recordcount = 0, record_number = 0, counter = 0, nodecount = 0;
+	uint64_t recordcount = 0, counter = 0, nodecount = 0;
+	record_num_t record_number = 0;
 	db_idxnode_t *parent = NULL, *current = NULL, *start = dbidx_allocate_node(idx->idx_schema);
 	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
 
-		if ( read(fd, &recordcount, sizeof(record_num_t)) != sizeof(record_num_t) ) {
-			printf("Incomplete read of recordcount\n");
-		}
-		printf("%" PRIu64 " records of size %ld exist in index file\n", (uint64_t)recordcount, sizeof(uint64_t));
+		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) )
+			fprintf(stderr, "Incomplete read of recordcount\n");
+
+		printf("%" PRIu64 " records of size %ld exist in index file\n", recordcount, sizeof(uint64_t));
 
 		current = start;
 		current->is_leaf = true;
 		current->prev = NULL;
 
-		//printf("Building leaf nodes (layer 0)\n");
 		for(counter = 0; counter < recordcount; counter++) {
 			if ( read(fd, &record_number, sizeof(record_num_t)) != sizeof(record_num_t) ) {
 				fprintf(stderr, "ERROR Missed read of %ld bytes\n", sizeof(record_num_t));
 				exit(EXIT_FAILURE);  // we have allocated memory that would be difficult to release
 			} else {
-				//printf("Record number %" PRIu64 "\n", record_number);
-				//dbidx_reset_key(idx->idx_schema, key);
-				record = read_db_table_record(tbl->mapped_table, record_number);
-				key = dbidx_allocate_key(idx->idx_schema);
-				set_key_from_record_data(tbl->schema, idx->idx_schema, record, key);
-				key->record = record_number;
-				current->children[current->num_children] = key;
-				current->num_children++;
-
 				if ( current->num_children >= idx->idx_schema->index_order - 1) {
 					current->next = dbidx_allocate_node(idx->idx_schema);
 					current->next->prev = current;
@@ -274,10 +265,18 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 					nodecount++;
 				}
 
+				record = read_db_table_record(tbl->mapped_table, record_number);
+				key = dbidx_allocate_key(idx->idx_schema);
+				set_key_from_record_data(tbl->schema, idx->idx_schema, record, key);
+				key->record = record_number;
+				key->childnode = current;
+
+				current->children[current->num_children] = key;
+				current->num_children++;
+
+
 				//if ( (counter+1) % 1000000 == 0 )
 				//	printf("Read %" PRIu64 " records so far (%" PRIu64 " nodes)\n", counter + 1, nodecount + 1);
-				//dbidx_key_print(idx->idx_schema, key);
-				//add_index_value(idx, &idx->root_node, buff);
 			}
 		}
 
@@ -301,8 +300,6 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 			current = start;
 			start = parent;
 
-			i++;
-			//printf("Building layer %d of nodes\n", i);
 			nodecount = 0;
 			while ( current != NULL ) {
 				if ( parent->num_children >= idx->idx_schema->index_order - 1) {
@@ -314,6 +311,7 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 				key = dbidx_allocate_key(idx->idx_schema);
 				dbidx_copy_key(idx->idx_schema, current->children[current->num_children - 1], key);
 				key->childnode = current;
+
 				parent->children[parent->num_children] = key;
 				parent->num_children++;
 				current->parent = parent;
@@ -324,9 +322,10 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 				//	printf("Read %" PRIu64 " nodes so far (%" PRIu64 " parent nodes)\n", counter, nodecount + 1);
 			}
 			parent->next = NULL;
-			printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", (uint64_t)counter, (uint64_t)(nodecount + 1), i);
+			printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", (uint64_t)counter, (uint64_t)(nodecount + 1), i++);
 		} while ( nodecount > 0 );
 		//printf("Finished building layers\n");
+		printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", (uint64_t)(nodecount + 1), (uint64_t)0, i);
 
 		if ( idx->root_node != NULL )
 			free(idx->root_node);
