@@ -24,6 +24,20 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 
 bool subscription_txn_handler(journal_t *, db_table_t *, char, char *, char *, char *, size_t);
 
+void remove_mem_table(data_dictionary_t **data_dictionary, char *tblname) {
+	db_table_t *tbl = find_db_table(data_dictionary, tblname);
+	if ( tbl != NULL ) {
+		char *tpth = "/dev/shm";
+		size_t tnsz = sizeof(char) * (strlen(tpth) + 1 + strlen(tbl->table_name) + 5);
+		char *tn = malloc(tnsz);
+		bzero(tn, tnsz);
+		sprintf(tn, "%s/%s.shm", tpth, tbl->table_name);
+		printf("removing %s\n", tn);
+		unlink(tn);
+		free(tn);
+	}
+}
+
 bool admin_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char *err, size_t errsz) {
 	char *action = NULL, *operation = NULL;
 	cJSON *k = NULL;
@@ -204,7 +218,7 @@ bool subscription_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv,
 				printf("Running unique index lookup using %s\n", lookupidx->index_name);
 				clock_gettime(CLOCK_REALTIME, &start_tm);
 				db_indexkey_t *findkey = create_key_from_record_data(tbl->schema, lookupidx->idx_schema, subscription);
-				findkey->record = UINT64_MAX;
+				findkey->record = RECORD_NUM_MAX;
 				db_indexkey_t *foundkey = dbidx_find_record(lookupidx, findkey);
 				clock_gettime(CLOCK_REALTIME, &end_tm);
 
@@ -322,7 +336,7 @@ bool client_command (cJSON *obj, cJSON **resp, uint16_t argc, void **argv, char 
 				printf("Running unique index lookup using %s\n", lookupidx->index_name);
 				clock_gettime(CLOCK_REALTIME, &start_tm);
 				db_indexkey_t *findkey = create_key_from_record_data(tbl->schema, lookupidx->idx_schema, client_record);
-				findkey->record = UINT64_MAX;
+				findkey->record = RECORD_NUM_MAX;
 				db_indexkey_t *foundkey = dbidx_find_record(lookupidx, findkey);
 
 				//dbidx_key_print(lookupidx->idx_schema, findkey);
@@ -384,7 +398,7 @@ bool find_subscription_by_id(
 	char *subid = NULL;
 	dd_datafield_t *subfield = NULL;
 	db_indexkey_t *kp = NULL, *subkey = dbidx_allocate_key_with_data(subidx->idx_schema);
-	subkey->record = UINT64_MAX;
+	subkey->record = RECORD_NUM_MAX;
 
 	for(uint8_t i = 0; i < subidx->idx_schema->num_fields; i++) {
 		if ( strcmp(subidx->idx_schema->fields[i]->field_name, "subscription_id") == 0 ) {
@@ -401,7 +415,7 @@ bool find_subscription_by_id(
 	dbidx_set_key_field_value(subidx->idx_schema, "subscription_id", subkey, subid);
 	if ((kp = dbidx_find_record(subidx, subkey)) != NULL) {
 		if ( (*subrec = read_db_table_record(tbl->mapped_table, kp->record)) == NULL )
-			fprintf(stderr, "Error while reading %s from slot %" PRIu64 "\n", subscription_id, kp->record);
+			fprintf(stderr, "Error while reading %s from slot %" PRIu64 "\n", subscription_id, (uint64_t)kp->record);
 		else
 			rv = true;
 	} else {
@@ -443,7 +457,7 @@ bool subscription_txn_handler(
 
 	switch (action) {
 		case 'i': ;
-			if ( tbl->free_record_slot == UINT64_MAX) {
+			if ( tbl->free_record_slot == RECORD_NUM_MAX) {
 				fprintf(stderr, "ERR: writing to table %s, table is full\n", tbl->table_name);
 				if ( errmsg != NULL )
 					snprintf(errmsg, errmsgsz, "error writing to table %s, table is full", tbl->table_name);
@@ -460,7 +474,7 @@ bool subscription_txn_handler(
 				printf("Checking index %s\n", idx->index_name);
 				key = dbidx_allocate_key_with_data(idx->idx_schema);
 				key = create_key_from_record_data(tbl->schema, idx->idx_schema, subrec);
-				key->record = UINT64_MAX;
+				key->record = RECORD_NUM_MAX;
 				k = dbidx_find_record(idx, key);
 				free(key);
 
@@ -474,8 +488,8 @@ bool subscription_txn_handler(
 			}
 
 			printf("Adding table record\n");
-			uint64_t recnum = UINT64_MAX;
-			if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) == UINT64_MAX ) {
+			record_num_t recnum = RECORD_NUM_MAX;
+			if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) == RECORD_NUM_MAX ) {
 				fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
 				if ( errmsg != NULL )
 					snprintf(errmsg, errmsgsz, "ERR: writing to table %s", tbl->table_name);
@@ -555,7 +569,7 @@ bool client_txn_handler(
 				printf("Checking index %s\n", idx->index_name);
 				key = dbidx_allocate_key_with_data(idx->idx_schema);
 				key = create_key_from_record_data(tbl->schema, idx->idx_schema, subrec);
-				key->record = UINT64_MAX;
+				key->record = RECORD_NUM_MAX;
 				k = dbidx_find_record(idx, key);
 				free(key);
 
@@ -569,8 +583,8 @@ bool client_txn_handler(
 			}
 
 			printf("Adding table record\n");
-			uint64_t recnum = UINT64_MAX;
-			if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) == UINT64_MAX ) {
+			record_num_t recnum = RECORD_NUM_MAX;
+			if ( (recnum = add_db_table_record(tbl->mapped_table, subrec)) == RECORD_NUM_MAX ) {
 				fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
 				if ( errmsg != NULL )
 					snprintf(errmsg, errmsgsz, "ERR: writing to table %s", tbl->table_name);
@@ -622,7 +636,7 @@ void load_subs_from_file(
 			db_table_t *tbl,
 			journal_t *j
 		) {
-	uint64_t rec_count = 0;
+	record_num_t rec_count = 0;
 	char subid[32], line[1024], *l, *field, *t = NULL, *delim = "\t"; // tab
 	unsigned int projectid[3];
 	bzero(&subid, sizeof(subid));
@@ -754,17 +768,25 @@ void load_subs_from_file(
 		//printf("successfully added\n");
 
 		if ( rec_count % 10000 == 0 )
-			printf("Added %" PRIu64 " records to the table\n", rec_count);
+			printf("Added %" PRIu64 " records to the table\n", (uint64_t)rec_count);
 	}
 	gzclose(gzfd);
 	free(addsub);
-	printf("Added %" PRIu64 " records to the table\n", rec_count);
+	printf("Added %" PRIu64 " records to the table\n", (uint64_t)rec_count);
 	journal_sync_on(j);
 }
 
 void load_clients_from_file(data_dictionary_t *dd, char *filename) {
 	char line[1024], *l, *field, *token = NULL;
 	db_table_t *tbl = find_db_table(&dd, "test_table");
+
+	printf("Total Record Count: %" PRIu64 "\n", (uint64_t)tbl->mapped_table->total_record_count);
+	printf("Free Record Slot: %" PRIu64 "\n", (uint64_t)tbl->mapped_table->free_record_slot);
+	if ( tbl->mapped_table->total_record_count - tbl->mapped_table->free_record_slot > 1 ) {
+		fprintf(stderr, "The table is already populated\n");
+		return;
+	}
+
 	char *client_record = new_db_table_record(tbl->schema);
 	// struct timespec create_tm;
 
@@ -772,7 +794,6 @@ void load_clients_from_file(data_dictionary_t *dd, char *filename) {
 
 	dd_datafield_t *tablefield = NULL;
 	uuid_t clientid;
-	uuid_clear(clientid);
 	tablefield = find_dd_field(&dd, "client_username");
 	size_t client_username_sz = tablefield->field_sz + 1;
 	char *client_username = malloc(client_username_sz);
@@ -814,19 +835,19 @@ void load_clients_from_file(data_dictionary_t *dd, char *filename) {
 		//clock_gettime(CLOCK_REALTIME, &create_tm);
 		//set_db_table_record_field(tbl->schema, "created_dt", (char  *)&create_tm, client_record);
 
-		uint64_t recnum = UINT64_MAX;
-		if ( (recnum = add_db_table_record(tbl->mapped_table, client_record)) == UINT64_MAX ) {
+		record_num_t recnum = RECORD_NUM_MAX;
+		if ( (recnum = add_db_table_record(tbl->mapped_table, client_record)) == RECORD_NUM_MAX ) {
 			fprintf(stderr, "ERR: writing to table %s\n", tbl->table_name);
 			return;
 		}
 
-		//db_table_record_print(tbl->schema, client_record);
-		reset_db_table_record(tbl->schema, client_record);
-
 		recordcount++;
-
-		if ( recordcount % 100000 == 0 )
+		if ( recordcount % 100000 == 0 ) {
 			printf("%" PRIu64 " client records loaded\n", recordcount);
+			//db_table_record_print(tbl->schema, client_record);
+		}
+
+		reset_db_table_record(tbl->schema, client_record);
 	}
 	gzclose(gzfd);
 
@@ -862,7 +883,7 @@ void subscription_lookup_tests(data_dictionary_t **data_dictionary) {
 	db_index_t *subidx = find_db_index(tbl, "subscription_id_idx_uq");
 	db_indexkey_t *subkey = dbidx_allocate_key_with_data(subidx->idx_schema);
 	dbidx_set_key_field_value(subidx->idx_schema, "subscription_id", subkey, "su_0k77ufeRLJyzXp");
-	subkey->record = UINT64_MAX;
+	subkey->record = RECORD_NUM_MAX;
 
 	printf("Searching using sub key:\n");
 	dbidx_key_print(subidx->idx_schema, subkey);
@@ -941,9 +962,10 @@ int main (int argc, char **argv) {
 	if ( errs > 0 )
 		exit(EXIT_FAILURE);
 
-	//mlockall(MCL_FUTURE);
 	print_data_dictionary(*data_dictionary);
 
+	//if ( !load_all_dd_disk_tables(*data_dictionary) )
+	//	exit(EXIT_FAILURE);
 	if ( !load_all_dd_tables(*data_dictionary) )
 		exit(EXIT_FAILURE);
 	printf("All lables opened\n");
@@ -1035,7 +1057,6 @@ int main (int argc, char **argv) {
 		}
 	}
 
-
 	for(uint32_t t = 0; t < (*data_dictionary)->num_tables; t++) {
 		tbl = &(*data_dictionary)->tables[t];
 		for(uint8_t i = 0; i < tbl->num_indexes; i++) {
@@ -1045,7 +1066,12 @@ int main (int argc, char **argv) {
 		}
 	}
 	printf("Closing tables\n");
+	//close_all_dd_disk_tables(*data_dictionary);
 	close_all_dd_tables(*data_dictionary);
+	/*
+	for(uint32_t t = 0; t < (*data_dictionary)->num_tables; t++)
+		remove_mem_table(data_dictionary, (*data_dictionary)->tables[t].table_name);
+	*/
 
 	close_journal(&jnl);
 	printf("Releasing common resources\n");

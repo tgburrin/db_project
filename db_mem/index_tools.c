@@ -35,8 +35,20 @@ db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
 	rv = malloc(keysz);
 	bzero(rv, keysz);
 	rv->childnode = NULL;
-	rv->keysz = keysz;
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
+	return rv;
+}
+
+db_indexkey_t *dbidx_allocate_key_block(db_index_schema_t *idx, record_num_t num_records) {
+	db_indexkey_t *rv = NULL, *offset = NULL;
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
+	rv = malloc(keysz * num_records);
+	bzero(rv, keysz * num_records);
+	for(uint64_t i = 0; i < num_records; i++) {
+		offset = (db_indexkey_t *)((char *)rv + (i * keysz));
+		offset->childnode = NULL;
+		offset->data = (char **)((char *)offset + sizeof(db_indexkey_t));
+	}
 	return rv;
 }
 
@@ -44,14 +56,12 @@ void dbidx_reset_key(db_index_schema_t *idx, db_indexkey_t *key) {
 	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	bzero(key, keysz);
 	key->childnode = NULL;
-	key->keysz = keysz;
 	key->data = (char **)((char *)key + sizeof(db_indexkey_t));
 }
 
 void dbidx_reset_key_with_data(db_index_schema_t *idx, db_indexkey_t *key) {
 	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields + sizeof(char *) * idx->record_size;
 	bzero(key, keysz);
-	key->keysz = keysz;
 	key->data = (char **)((char *)key + sizeof(db_indexkey_t));
 	*key->data = (char *)key + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 }
@@ -78,14 +88,15 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 
 	rv = malloc(keysz);
 	bzero(rv, keysz);
-	rv->keysz = keysz;
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
 	*rv->data = (char *)rv + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	return rv;
 }
 
-bool dbidx_copy_key(db_indexkey_t *src, db_indexkey_t *dst) {
-	memcpy(dst, src, src->keysz);
+bool dbidx_copy_key(db_index_schema_t *idx, db_indexkey_t *src, db_indexkey_t *dst) {
+	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
+
+	memcpy(dst, src, keysz);
 	dst->childnode = NULL;
 	dst->data = (char **)((char *)dst + sizeof(db_indexkey_t));
 	return true;
@@ -200,7 +211,7 @@ signed char dbidx_compare_keys(db_index_schema_t *idx, db_indexkey_t *keya, db_i
 			break;
 	}
 
-	if ( rv == 0 && keya->record < UINT64_MAX && keyb->record < UINT64_MAX )
+	if ( rv == 0 && keya->record < RECORD_NUM_MAX && keyb->record < RECORD_NUM_MAX )
 		rv = keya->record == keyb->record ? 0 : keya->record > keyb->record ? 1 : -1;
 
 	return rv;
@@ -210,7 +221,7 @@ uint64_t dbidx_num_child_records(db_idxnode_t *idxnode) {
 	if ( idxnode->is_leaf )
 		return (uint64_t)idxnode->num_children;
 
-	int rv = 0;
+	uint64_t rv = 0;
 	for (int i=0; i < idxnode->num_children; i++)
 		rv += (uint64_t)((db_idxnode_t *)idxnode->children[i])->num_children;
 
@@ -345,7 +356,7 @@ signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode,
 		return -1;
 	}
 
-	int64_t i = idxnode->num_children / 2;
+	int16_t i = idxnode->num_children / 2;
 
 	index_order_t lower = 0;
 	index_order_t upper = idxnode->num_children;
@@ -403,7 +414,7 @@ signed char dbidx_find_node_index_reverse(db_index_schema_t *idx, db_idxnode_t *
 		return 1;
 	}
 
-	int64_t i = idxnode->num_children / 2;
+	int16_t i = idxnode->num_children / 2;
 
 	index_order_t lower = 0;
 	index_order_t upper = idxnode->num_children;
@@ -486,7 +497,7 @@ bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 		if ( idx->idx_schema->is_unique ) {
 			index_order_t nodeidx = 0;
 			uint64_t cr = key->record;
-			key->record = UINT64_MAX;
+			key->record = RECORD_NUM_MAX;
 			if ( dbidx_find_node_index(idx->idx_schema, current, key, &nodeidx) == 0  &&
 					dbidx_compare_keys(idx->idx_schema, current->children[nodeidx], key) == 0 ) {
 				key->record = cr;
@@ -520,7 +531,7 @@ db_idxnode_t *dbidx_add_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode
 	if(i < idxnode->num_children) {
 		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(char *) * (idxnode->num_children - i));
 	} else if ( i == idxnode->num_children ) {
-		dbidx_update_max_value(idxnode->parent, idxnode, key);
+		dbidx_update_max_value(idx, idxnode->parent, idxnode, key);
 	}
 
 	(idxnode->num_children)++;
@@ -534,7 +545,7 @@ db_idxnode_t *dbidx_add_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode
 		idxnode->children[i] = key;
 	} else {
 		db_indexkey_t *new_key = dbidx_allocate_key(idx);
-		dbidx_copy_key(key, new_key);
+		dbidx_copy_key(idx, key, new_key);
 		idxnode->children[i] = new_key;
 	}
 
@@ -617,7 +628,7 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 								(c->num_children)++;
 								idxnode->children[k] = 0;
 							}
-							dbidx_update_max_value(c->parent, c, c->children[c->num_children-1]);
+							dbidx_update_max_value(idx, c->parent, c, c->children[c->num_children-1]);
 						}
 
 						(idxnode->num_children) -= move_right;
@@ -647,7 +658,7 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 						free(idxnode);
 					} else {
 						if (i == idxnode->num_children ) {
-							dbidx_update_max_value(idxnode->parent, idxnode, idxnode->children[i-1]);
+							dbidx_update_max_value(idx, idxnode->parent, idxnode, idxnode->children[i-1]);
 						}
 					}
 				}
@@ -713,7 +724,7 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db
 			new_node->num_children++;
 		}
 
-		dbidx_copy_key(new_node->children[new_node->num_children-1], new_k);
+		dbidx_copy_key(idx, new_node->children[new_node->num_children-1], new_k);
 		new_k->childnode = new_node;
 
 		dbidx_add_node_value(idx, idxnode->parent, new_k);
@@ -767,7 +778,7 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db
 			new_left->num_children++;
 		}
 
-		dbidx_copy_key(old_left_k, new_left_k);
+		dbidx_copy_key(idx, old_left_k, new_left_k);
 		new_left_k->childnode = new_left;
 
 		/* fix the new right node */
@@ -784,7 +795,7 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db
 			new_right->num_children++;
 		}
 
-		dbidx_copy_key(old_right_k, new_right_k);
+		dbidx_copy_key(idx, old_right_k, new_right_k);
 		new_right_k->childnode = new_right;
 
 		idxnode->is_leaf = false;
@@ -852,7 +863,7 @@ void dbidx_collapse_nodes(db_index_schema_t *idx, db_idxnode_t *idxnode) {
 	}
 }
 
-void dbidx_update_max_value (db_idxnode_t *parent_idx, db_idxnode_t *idxnode, db_indexkey_t *new_key) {
+void dbidx_update_max_value (db_index_schema_t *idx, db_idxnode_t *parent_idx, db_idxnode_t *idxnode, db_indexkey_t *new_key) {
 	db_indexkey_t *current_key = NULL;
 	int i = 0;
 
@@ -860,13 +871,13 @@ void dbidx_update_max_value (db_idxnode_t *parent_idx, db_idxnode_t *idxnode, db
 		for(i=0; i < parent_idx->num_children; i++) {
 			current_key = parent_idx->children[i];
 			if ( current_key->childnode == idxnode ) {
-				dbidx_copy_key(new_key, current_key);
+				dbidx_copy_key(idx, new_key, current_key);
 				current_key->childnode = idxnode;
 				break;
 			}
 		}
 		if ( i == parent_idx->num_children - 1)
-			dbidx_update_max_value(parent_idx->parent, parent_idx, new_key);
+			dbidx_update_max_value(idx, parent_idx->parent, parent_idx, new_key);
 	}
 }
 
@@ -896,10 +907,10 @@ void dbidx_key_print(db_index_schema_t *idx, db_indexkey_t *key) {
 	memset(padding, ' ', max_label_size);
 	padding[max_label_size] = '\0';
 	memcpy(padding, "record_number", strlen("record_number"));
-	if ( key->record != UINT64_MAX )
-		printf("%s: %" PRIu64 "\n", padding, key->record);
+	if ( key->record != RECORD_NUM_MAX )
+		printf("%s: %" PRIu64 "\n", padding, (uint64_t)key->record);
 	else
-		printf("%s: UINT64_MAX\n", padding);
+		printf("%s: RECORD_NUM_MAX\n", padding);
 
 	return;
 }
@@ -919,7 +930,7 @@ void dbidx_print_tree(db_index_t *idx, db_idxnode_t *idxnode, uint64_t *counter)
 			// This is hardcoded and shouldn't be
 			char strkey[128];
 			idx_key_to_str(idx->idx_schema, s->children[i], strkey);
-			printf("%s%s(%" PRIu64 ") (%s %d)", page == 1 && i == 0 ? "" : " ", strkey, s->children[i]->record, s->is_leaf ? "leaf" : "node", page);
+			printf("%s%s(%" PRIu64 ") (%s %d)", page == 1 && i == 0 ? "" : " ", strkey, (uint64_t)s->children[i]->record, s->is_leaf ? "leaf" : "node", page);
 		}
 		s = s->next;
 		page++;

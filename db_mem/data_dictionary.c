@@ -154,17 +154,17 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 		uint8_t num_fields = cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(attr, "fields"));
 		dd_table_schema_t *schema = init_dd_schema(attr->string, num_fields);
 		dd_table_schema_t *created_schema = NULL;
-		uint64_t table_size = 0;
+		record_num_t table_size = 0;
 		cJSON *c = NULL;
 
 		if ( (c = cJSON_GetObjectItemCaseSensitive(attr, "size")) != NULL && cJSON_IsNumber(c) ) {
 			double sv = cJSON_GetNumberValue(c);
-			if ( sv >= UINT64_MAX || sv < 1) {
-				fprintf(stderr, "size %lf must be between 1 and %ld\n", sv, UINT64_MAX - 1);
+			if ( sv >= RECORD_NUM_MAX || sv < 1) {
+				fprintf(stderr, "size %lf must be between 1 and %" PRIu64 "\n", sv, (uint64_t)(RECORD_NUM_MAX - 1));
 				attr = attr->next;
 				continue;
 			} else
-				table_size = (uint64_t)sv;
+				table_size = (record_num_t)sv;
 		}
 
 		c = cJSON_GetObjectItemCaseSensitive(attr, "fields");
@@ -414,7 +414,7 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		db_table_t *t = &data_dictionary->tables[i];
 		dd_table_schema_t *s = t->schema;
 
-		printf("%s (%" PRIu64 " records)\n", t->table_name, t->total_record_count);
+		printf("%s (%" PRIu64 " records)\n", t->table_name, (uint64_t)t->total_record_count);
 		printf("\tschema %s (record is %d fields total of %d bytes)\n", s->schema_name, s->field_count, s->record_size);
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
@@ -565,7 +565,7 @@ void release_data_dictionary(data_dictionary_t **dd) {
 	free(dd);
 }
 
-db_table_t *init_db_table(char *table_name, dd_table_schema_t *schema, uint64_t size) {
+db_table_t *init_db_table(char *table_name, dd_table_schema_t *schema, record_num_t size) {
 	if( strlen(table_name) >= DB_OBJECT_NAME_SZ )
 		return NULL;
 

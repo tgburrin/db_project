@@ -24,6 +24,8 @@
 
 typedef uint8_t index_order_t;
 #define INDEX_ORDER_MAX UINT8_MAX
+typedef uint32_t record_num_t;
+#define RECORD_NUM_MAX UINT32_MAX
 
 /* empty typedef definitions for early use, these will be redefined later */
 typedef struct DDDataField dd_data_field_t;
@@ -64,8 +66,8 @@ typedef struct DbTable {
 	char table_name[DB_OBJECT_NAME_SZ];
 	uint16_t header_size;
 	struct timespec closedtm;
-	uint64_t total_record_count;
-	uint64_t free_record_slot;
+	record_num_t total_record_count;
+	record_num_t free_record_slot;
 
 	db_table_t *mapped_table;
 	int filedes;
@@ -79,8 +81,8 @@ typedef struct DbTable {
 	dd_table_schema_t *schema;
 	uint8_t num_indexes;
 	db_index_t **indexes;
-	uint64_t *used_slots;
-	uint64_t *free_slots;
+	record_num_t *used_slots;
+	record_num_t *free_slots;
 	char *data;
 } db_table_t;
 
@@ -98,8 +100,7 @@ typedef struct DbIndexNode {
 
 typedef struct DbIndexKey { /* an index key may either be a terminal leaf or a jump to another node */
 	db_idxnode_t *childnode;
-	uint64_t record;
-	uint16_t keysz;
+	record_num_t record;
 	char **data;
 } db_indexkey_t;
 
@@ -138,7 +139,7 @@ bool write_data_dictionary_dat(data_dictionary_t *, char *);
 void release_data_dictionary(data_dictionary_t **);
 char *read_dd_json_file(char *);
 dd_table_schema_t *init_dd_schema(char *, uint8_t);
-db_table_t *init_db_table(char *, dd_table_schema_t *, uint64_t);
+db_table_t *init_db_table(char *, dd_table_schema_t *, record_num_t);
 db_index_t *init_db_idx(char *, uint8_t);
 dd_datafield_t *init_dd_field_type(char *, datatype_t, uint8_t);
 dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
@@ -185,9 +186,9 @@ bool open_dd_disk_table(db_table_t *tablemeta);
 bool close_dd_table(db_table_t *tablemeta);
 bool close_dd_disk_table(db_table_t *tablemeta);
 
-uint64_t add_db_table_record(db_table_t *, char *);
-bool delete_db_table_record(db_table_t *, uint64_t, char *);
-char * read_db_table_record(db_table_t *, uint64_t);
+record_num_t add_db_table_record(db_table_t *, char *);
+bool delete_db_table_record(db_table_t *, record_num_t, char *);
+char * read_db_table_record(db_table_t *, record_num_t);
 char * new_db_table_record(dd_table_schema_t *);
 void reset_db_table_record(dd_table_schema_t *, char *);
 void release_table_record(dd_table_schema_t *, char *);
@@ -203,13 +204,14 @@ void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);
 db_idxnode_t *dbidx_init_root_node(db_index_schema_t *);
 db_idxnode_t *dbidx_allocate_node(db_index_schema_t *);
 db_indexkey_t *dbidx_allocate_key(db_index_schema_t *); /* allocates just the key, data must be maintained separately */
+db_indexkey_t *dbidx_allocate_key_block(db_index_schema_t *, record_num_t);
 void dbidx_reset_key(db_index_schema_t *, db_indexkey_t *);
 void dbidx_reset_key_with_data(db_index_schema_t *, db_indexkey_t *);
 char *dbidx_allocate_key_data(db_index_schema_t *); /* allocates just the data to be attached to the key */
 /* the allocates both key and data, attaches it to the key, but copies will not account for the data payload
  * it is useful only for comparisons */
 db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *);
-bool dbidx_copy_key(db_indexkey_t *, db_indexkey_t *);
+bool dbidx_copy_key(db_index_schema_t *, db_indexkey_t *, db_indexkey_t *);
 
 void dbidx_release_tree(db_index_t *, db_idxnode_t *);
 
@@ -238,7 +240,7 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 db_idxnode_t *dbidx_split_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
 void dbidx_collapse_nodes(db_index_schema_t *, db_idxnode_t *);
 
-void dbidx_update_max_value (db_idxnode_t *, db_idxnode_t *, db_indexkey_t *);
+void dbidx_update_max_value (db_index_schema_t *, db_idxnode_t *, db_idxnode_t *, db_indexkey_t *);
 
 void dbidx_key_print(db_index_schema_t *, db_indexkey_t *);
 

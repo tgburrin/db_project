@@ -61,7 +61,7 @@
 			}
 		},
 		"test_table": {
-			"size": 10,
+			"size": 1000,
 			"fields": [
 				"client_id",
 				"created_dt",
