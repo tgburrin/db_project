@@ -7,14 +7,14 @@
 	},
 	"tables": {
 		"test_table": {
-			"size": 550000000,
+			"size": 255000000,
 			"fields": [
 				"client_id",
 				"client_username"
 			],
 			"indexes": {
 				"client_id_id_idx_uq": {
-					"order": 7,
+					"order": 5,
 					"unique": true,
 					"fields": ["client_id"]
 				}

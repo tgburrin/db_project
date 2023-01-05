@@ -7,9 +7,9 @@
 
 #include "db_interface.h"
 
-bool add_db_record(db_table_t *tbl, char *record, uint64_t *rv) {
+bool add_db_record(db_table_t *tbl, char *record, record_num_t *rv) {
 	*rv = add_db_table_record(tbl, record);
-	return *rv == UINT64_MAX ? false : true;
+	return *rv == RECORD_NUM_MAX ? false : true;
 }
 
 bool load_all_dd_tables(data_dictionary_t *dd) {
@@ -34,12 +34,34 @@ bool close_all_dd_tables(data_dictionary_t *dd) {
 	return true;
 }
 
+bool load_all_dd_disk_tables(data_dictionary_t *dd) {
+	printf("Opening %" PRIu32 " tables from the data dictionary\n", dd->num_tables);
+	for(uint32_t i = 0; i < dd->num_tables; i++) {
+		if ( !open_dd_disk_table(&dd->tables[i]) ) {
+			fprintf(stderr, "failed to load table %s\n", dd->tables[i].table_name);
+			return false;
+		} else
+			printf("Opened table %s\n", dd->tables[i].table_name);
+	}
+	return true;
+}
+bool close_all_dd_disk_tables(data_dictionary_t *dd) {
+	printf("Closing %" PRIu32 " tables from the data dictionary\n", dd->num_tables);
+	for(uint32_t i = 0; i < dd->num_tables; i++) {
+		if ( !close_dd_disk_table(&dd->tables[i]) ) {
+			fprintf(stderr, "failed to close table %s\n", dd->tables[i].table_name);
+			return false;
+		}
+	}
+	return true;
+}
+
 bool load_dd_index_from_table(db_table_t *tbl) {
 	if ( tbl == NULL || tbl->mapped_table == NULL)
 		return false;
 
 	bool rv = true;
-	printf("%" PRIu64 " slots to be examined for %" PRIu8 " indexes\n", tbl->mapped_table->total_record_count, tbl->num_indexes);
+	printf("%" PRIu64 " slots to be examined for %" PRIu8 " indexes\n", (uint64_t)tbl->mapped_table->total_record_count, tbl->num_indexes);
 	for(uint8_t i = 0; i < tbl->num_indexes; i++)
 		if ( !read_index_table_records(tbl, tbl->indexes[i]) )
 			rv = false;
@@ -51,7 +73,7 @@ bool load_dd_index_from_file(db_table_t *tbl) {
 		return false;
 
 	bool rv = true;
-	printf("%" PRIu64 " slots to be examined for %" PRIu8 " indexes\n", tbl->mapped_table->total_record_count, tbl->num_indexes);
+	printf("%" PRIu64 " slots to be examined for %" PRIu8 " indexes\n", (uint64_t)tbl->mapped_table->total_record_count, tbl->num_indexes);
 	for(uint8_t i = 0; i < tbl->num_indexes; i++)
 		if ( !read_index_file_records(tbl, tbl->indexes[i]) )
 			rv = false;
@@ -91,12 +113,12 @@ bool load_dd_indexes(db_table_t *tbl) {
 	return true;
 }
 
-bool read_db_record(db_table_t *tbl, uint64_t slot, char **record) {
+bool read_db_record(db_table_t *tbl, record_num_t slot, char **record) {
 	*record = read_db_table_record(tbl, slot);
 	return *record == NULL ? false : true;
 }
 
-bool delete_db_record(db_table_t *tbl, uint64_t slot, char **deleted_record) {
+bool delete_db_record(db_table_t *tbl, record_num_t slot, char **deleted_record) {
 	if ( tbl == NULL )
 		return false;
 
@@ -104,7 +126,7 @@ bool delete_db_record(db_table_t *tbl, uint64_t slot, char **deleted_record) {
 	return rv;
 }
 
-void set_key_from_record_slot(db_table_t *tbl, uint64_t slot, db_index_schema_t *idx, db_indexkey_t *key) {
+void set_key_from_record_slot(db_table_t *tbl, record_num_t slot, db_index_schema_t *idx, db_indexkey_t *key) {
 	if ( key == NULL )
 		return;
 
@@ -201,7 +223,7 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 
 	// path + '/' + name + '.idx' + \0
 	char *record, *idxfile = malloc(sz);
-	db_indexkey_t *key = NULL, *findkey = dbidx_allocate_key(idx->idx_schema);
+	db_indexkey_t *findkey = dbidx_allocate_key(idx->idx_schema);
 	bzero(idxfile, sz);
 
 	strcat(idxfile, ipth);
@@ -216,46 +238,53 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 		return false;
 	}
 
-	uint64_t recordcount = 0, record_number = 0, counter = 0, nodecount = 0;
-	db_idxnode_t *parent = NULL, *current = NULL, *start = dbidx_allocate_node(idx->idx_schema);
+	uint64_t recordcount = 0, counter = 0, nodecount = 0;
+	record_num_t record_number = 0;
+	db_idxnode_t *parent = NULL, *current = NULL, *start = NULL;
+	if ( idx->nodeset != NULL )
+		start = dbidx_reserve_node(idx);
+	else
+		start = dbidx_allocate_node(idx->idx_schema);
+
 	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
 
-		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) ) {
-			printf("Incomplete read of recordcount\n");
-		}
+		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) )
+			fprintf(stderr, "Incomplete read of recordcount\n");
+
 		printf("%" PRIu64 " records of size %ld exist in index file\n", recordcount, sizeof(uint64_t));
 
 		current = start;
 		current->is_leaf = true;
 		current->prev = NULL;
 
-		//printf("Building leaf nodes (layer 0)\n");
 		for(counter = 0; counter < recordcount; counter++) {
-			if ( read(fd, &record_number, sizeof(uint64_t)) != sizeof(uint64_t) ) {
-				fprintf(stderr, "ERROR Missed read of %ld bytes\n", sizeof(uint64_t));
+			if ( read(fd, &record_number, sizeof(record_num_t)) != sizeof(record_num_t) ) {
+				fprintf(stderr, "ERROR Missed read of %ld bytes\n", sizeof(record_num_t));
 				exit(EXIT_FAILURE);  // we have allocated memory that would be difficult to release
 			} else {
-				//printf("Record number %" PRIu64 "\n", record_number);
-				//dbidx_reset_key(idx->idx_schema, key);
-				record = read_db_table_record(tbl->mapped_table, record_number);
-				key = dbidx_allocate_key(idx->idx_schema);
-				set_key_from_record_data(tbl->schema, idx->idx_schema, record, key);
-				key->record = record_number;
-				current->children[current->num_children] = key;
-				current->num_children++;
-
 				if ( current->num_children >= idx->idx_schema->index_order - 1) {
-					current->next = dbidx_allocate_node(idx->idx_schema);
+					if ( idx->nodeset != NULL )
+						current->next = dbidx_reserve_node(idx);
+					else
+						current->next = dbidx_allocate_node(idx->idx_schema);
 					current->next->prev = current;
 					current = current->next;
 					current->is_leaf = true;
 					nodecount++;
 				}
 
+				record = read_db_table_record(tbl->mapped_table, record_number);
+				dbidx_reset_key(idx->idx_schema, findkey);
+				set_key_from_record_data(tbl->schema, idx->idx_schema, record, findkey);
+
+				dbidx_copy_key(idx->idx_schema, findkey, current->children[current->num_children]);
+				current->children[current->num_children]->childnode = current;
+				current->children[current->num_children]->record = record_number;
+
+				current->num_children++;
+
 				//if ( (counter+1) % 1000000 == 0 )
 				//	printf("Read %" PRIu64 " records so far (%" PRIu64 " nodes)\n", counter + 1, nodecount + 1);
-				//dbidx_key_print(idx->idx_schema, key);
-				//add_index_value(idx, &idx->root_node, buff);
 			}
 		}
 
@@ -267,32 +296,39 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 	}
 	close(fd);
 
-	printf("%" PRIu64 " keys read with %" PRIu64 " nodes created\n", counter, nodecount + 1);
+	printf("%" PRIu64 " keys read with %" PRIu64 " nodes created\n", (uint64_t)counter, (uint64_t)(nodecount + 1));
 
 	i = 0;
 	if ( nodecount > 0 ) {
 		do {
 			counter = 0;
-			parent =  dbidx_allocate_node(idx->idx_schema);
+			parent = NULL;
+			if ( idx->nodeset != NULL )
+				parent = dbidx_reserve_node(idx);
+			else
+				parent = dbidx_allocate_node(idx->idx_schema);
+
 			parent->parent = parent;
 			parent->prev = NULL;
 			current = start;
 			start = parent;
 
-			i++;
-			//printf("Building layer %d of nodes\n", i);
 			nodecount = 0;
 			while ( current != NULL ) {
 				if ( parent->num_children >= idx->idx_schema->index_order - 1) {
-					parent->next = dbidx_allocate_node(idx->idx_schema);
+					if ( idx->nodeset != NULL )
+						parent->next = dbidx_reserve_node(idx);
+					else
+						parent->next = dbidx_allocate_node(idx->idx_schema);
+
 					parent->next->prev = parent;
 					parent = parent->next;
 					nodecount++;
 				}
-				key = dbidx_allocate_key(idx->idx_schema);
-				dbidx_copy_key(current->children[current->num_children - 1], key);
-				key->childnode = current;
-				parent->children[parent->num_children] = key;
+
+				dbidx_copy_key(idx->idx_schema, current->children[current->num_children - 1], parent->children[parent->num_children]);
+				parent->children[parent->num_children]->childnode = current;
+
 				parent->num_children++;
 				current->parent = parent;
 				current = current->next;
@@ -302,16 +338,27 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 				//	printf("Read %" PRIu64 " nodes so far (%" PRIu64 " parent nodes)\n", counter, nodecount + 1);
 			}
 			parent->next = NULL;
-			printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", counter, nodecount + 1, i);
+			printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", (uint64_t)counter, (uint64_t)(nodecount + 1), i++);
 		} while ( nodecount > 0 );
 		//printf("Finished building layers\n");
+		printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", (uint64_t)(nodecount + 1), (uint64_t)0, i);
 
-		if ( idx->root_node != NULL )
-			free(idx->root_node);
+		if ( idx->root_node != NULL ) {
+			if ( idx->nodeset != NULL ) {
+				dbidx_release_node(idx, idx->root_node);
+			} else {
+				free(idx->root_node);
+			}
+		}
 		idx->root_node = parent;
 	} else if ( current == start ) {
-		if ( idx->root_node != NULL )
-			free(idx->root_node);
+		if ( idx->root_node != NULL ) {
+			if ( idx->nodeset != NULL ) {
+				dbidx_release_node(idx, idx->root_node);
+			} else {
+				free(idx->root_node);
+			}
+		}
 		start->parent = start;
 		idx->root_node = start;
 	} else {
@@ -321,8 +368,8 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 	free(findkey);
 	free(idxfile);
 
-	recordcount = 0;
-	dbidx_print_tree_totals(idx, NULL, &recordcount);
+	uint64_t cnt = 0;
+	dbidx_print_tree_totals(idx, NULL, &cnt);
 	return true;
 }
 
@@ -330,12 +377,12 @@ bool read_index_table_records(db_table_t *tbl, db_index_t *idx) {
 	if ( tbl == NULL || tbl->mapped_table == NULL)
 		return false;
 
-	uint64_t recordcount = 0;
-	printf("%" PRIu64 " slots to be examined\n", tbl->mapped_table->total_record_count);
+	record_num_t recordcount = 0;
+	printf("%" PRIu64 " slots to be examined\n", (uint64_t)tbl->mapped_table->total_record_count);
 	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
 		db_indexkey_t *key = dbidx_allocate_key(tbl->indexes[i]->idx_schema);
-		for(uint64_t slot = 0; slot < tbl->mapped_table->total_record_count; slot++) {
-			if ( tbl->mapped_table->used_slots[slot] == UINT64_MAX )
+		for(record_num_t slot = 0; slot < tbl->mapped_table->total_record_count; slot++) {
+			if ( tbl->mapped_table->used_slots[slot] == RECORD_NUM_MAX )
 				continue;
 			dbidx_reset_key(tbl->indexes[i]->idx_schema, key);
 			set_key_from_record_slot(tbl, slot, tbl->indexes[i]->idx_schema, key);
@@ -343,11 +390,11 @@ bool read_index_table_records(db_table_t *tbl, db_index_t *idx) {
 			recordcount++;
 		}
 		free(key);
-		printf("%" PRIu64 " records added to %s\n", recordcount, tbl->indexes[i]->index_name);
+		printf("%" PRIu64 " records added to %s\n", (uint64_t)recordcount, tbl->indexes[i]->index_name);
 	}
 
-	recordcount = 0;
-	dbidx_print_tree_totals(idx, NULL, &recordcount);
+	uint64_t cnt = 0;
+	dbidx_print_tree_totals(idx, NULL, &cnt);
 	return true;
 }
 
