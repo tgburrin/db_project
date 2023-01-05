@@ -14,7 +14,7 @@
 			],
 			"indexes": {
 				"client_id_id_idx_uq": {
-					"order": 11,
+					"order": 5,
 					"unique": true,
 					"fields": ["client_id"]
 				}
