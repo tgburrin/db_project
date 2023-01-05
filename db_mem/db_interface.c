@@ -223,7 +223,7 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 
 	// path + '/' + name + '.idx' + \0
 	char *record, *idxfile = malloc(sz);
-	db_indexkey_t *key = NULL, *findkey = dbidx_allocate_key(idx->idx_schema);
+	db_indexkey_t *findkey = dbidx_allocate_key(idx->idx_schema);
 	bzero(idxfile, sz);
 
 	strcat(idxfile, ipth);
@@ -240,7 +240,12 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 
 	uint64_t recordcount = 0, counter = 0, nodecount = 0;
 	record_num_t record_number = 0;
-	db_idxnode_t *parent = NULL, *current = NULL, *start = dbidx_allocate_node(idx->idx_schema);
+	db_idxnode_t *parent = NULL, *current = NULL, *start = NULL;
+	if ( idx->nodeset != NULL )
+		start = dbidx_reserve_node(idx);
+	else
+		start = dbidx_allocate_node(idx->idx_schema);
+
 	if ( (fd = open(idxfile, O_RDONLY, 0640)) >= 0 ) {
 
 		if ( read(fd, &recordcount, sizeof(uint64_t)) != sizeof(uint64_t) )
@@ -258,7 +263,10 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 				exit(EXIT_FAILURE);  // we have allocated memory that would be difficult to release
 			} else {
 				if ( current->num_children >= idx->idx_schema->index_order - 1) {
-					current->next = dbidx_allocate_node(idx->idx_schema);
+					if ( idx->nodeset != NULL )
+						current->next = dbidx_reserve_node(idx);
+					else
+						current->next = dbidx_allocate_node(idx->idx_schema);
 					current->next->prev = current;
 					current = current->next;
 					current->is_leaf = true;
@@ -266,14 +274,14 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 				}
 
 				record = read_db_table_record(tbl->mapped_table, record_number);
-				key = dbidx_allocate_key(idx->idx_schema);
-				set_key_from_record_data(tbl->schema, idx->idx_schema, record, key);
-				key->record = record_number;
-				key->childnode = current;
+				dbidx_reset_key(idx->idx_schema, findkey);
+				set_key_from_record_data(tbl->schema, idx->idx_schema, record, findkey);
 
-				current->children[current->num_children] = key;
+				dbidx_copy_key(idx->idx_schema, findkey, current->children[current->num_children]);
+				current->children[current->num_children]->childnode = current;
+				current->children[current->num_children]->record = record_number;
+
 				current->num_children++;
-
 
 				//if ( (counter+1) % 1000000 == 0 )
 				//	printf("Read %" PRIu64 " records so far (%" PRIu64 " nodes)\n", counter + 1, nodecount + 1);
@@ -294,7 +302,12 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 	if ( nodecount > 0 ) {
 		do {
 			counter = 0;
-			parent =  dbidx_allocate_node(idx->idx_schema);
+			parent = NULL;
+			if ( idx->nodeset != NULL )
+				parent = dbidx_reserve_node(idx);
+			else
+				parent = dbidx_allocate_node(idx->idx_schema);
+
 			parent->parent = parent;
 			parent->prev = NULL;
 			current = start;
@@ -303,16 +316,19 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 			nodecount = 0;
 			while ( current != NULL ) {
 				if ( parent->num_children >= idx->idx_schema->index_order - 1) {
-					parent->next = dbidx_allocate_node(idx->idx_schema);
+					if ( idx->nodeset != NULL )
+						parent->next = dbidx_reserve_node(idx);
+					else
+						parent->next = dbidx_allocate_node(idx->idx_schema);
+
 					parent->next->prev = parent;
 					parent = parent->next;
 					nodecount++;
 				}
-				key = dbidx_allocate_key(idx->idx_schema);
-				dbidx_copy_key(idx->idx_schema, current->children[current->num_children - 1], key);
-				key->childnode = current;
 
-				parent->children[parent->num_children] = key;
+				dbidx_copy_key(idx->idx_schema, current->children[current->num_children - 1], parent->children[parent->num_children]);
+				parent->children[parent->num_children]->childnode = current;
+
 				parent->num_children++;
 				current->parent = parent;
 				current = current->next;
@@ -327,12 +343,22 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 		//printf("Finished building layers\n");
 		printf("Read %" PRIu64 " nodes (%" PRIu64 " parent nodes) in layer %d\n", (uint64_t)(nodecount + 1), (uint64_t)0, i);
 
-		if ( idx->root_node != NULL )
-			free(idx->root_node);
+		if ( idx->root_node != NULL ) {
+			if ( idx->nodeset != NULL ) {
+				dbidx_release_node(idx, idx->root_node);
+			} else {
+				free(idx->root_node);
+			}
+		}
 		idx->root_node = parent;
 	} else if ( current == start ) {
-		if ( idx->root_node != NULL )
-			free(idx->root_node);
+		if ( idx->root_node != NULL ) {
+			if ( idx->nodeset != NULL ) {
+				dbidx_release_node(idx, idx->root_node);
+			} else {
+				free(idx->root_node);
+			}
+		}
 		start->parent = start;
 		idx->root_node = start;
 	} else {

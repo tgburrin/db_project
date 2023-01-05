@@ -1,7 +1,11 @@
 #include "data_dictionary.h"
 
-db_idxnode_t * dbidx_init_root_node(db_index_schema_t *idx) {
-	db_idxnode_t *idxnode = dbidx_allocate_node(idx);
+db_idxnode_t * dbidx_init_root_node(db_index_t *idx) {
+	db_idxnode_t *idxnode = NULL;
+	if ( idx->nodeset != NULL )
+		idxnode = dbidx_reserve_node(idx);
+	else
+		idxnode = dbidx_allocate_node(idx->idx_schema);
 	idxnode->is_leaf = true;
 	idxnode->parent = idxnode;
 	return idxnode;
@@ -13,42 +17,80 @@ db_idxnode_t *dbidx_allocate_node(db_index_schema_t *idx) {
 	if ( idx == NULL )
 		return rv;
 
-	size_t nodesz = sizeof(db_idxnode_t) + sizeof(db_indexkey_t *) * idx->index_order;
-	rv = malloc(nodesz);
-	bzero(rv, nodesz);
-	rv->nodesz = nodesz;
+	rv = malloc(idx->nodekey_size);
+	mlock(rv, idx->nodekey_size);
+	bzero(rv, idx->nodekey_size);
 	rv->parent = NULL;
 	rv->next = NULL;
 	rv->prev = NULL;
 	rv->children = (db_indexkey_t **)((char *)rv + sizeof(db_idxnode_t));
+	char *offset = (char *)rv->children + sizeof(db_indexkey_t *) * idx->index_order;
+	for(uint64_t i = 0; i < idx->index_order; i++)
+		rv->children[i] = (db_indexkey_t *)(offset + (i * idx->key_size));
 	return rv;
 }
 
-db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
-	db_indexkey_t *rv = NULL;
+db_idxnode_t *dbidx_reserve_node(db_index_t *idx) {
+	db_idxnode_t *rv = NULL;
+	record_num_t slot = RECORD_NUM_MAX;
+	record_num_t cs = idx->free_node_slot;
 
-	if ( idx == NULL )
-		return rv;
-
-	/* This is kind of an unsafe strategy, but it should work */
-	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
-	rv = malloc(keysz);
-	bzero(rv, keysz);
-	rv->childnode = NULL;
-	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
-	return rv;
-}
-
-db_indexkey_t *dbidx_allocate_key_block(db_index_schema_t *idx, record_num_t num_records) {
-	db_indexkey_t *rv = NULL, *offset = NULL;
-	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
-	rv = malloc(keysz * num_records);
-	bzero(rv, keysz * num_records);
-	for(uint64_t i = 0; i < num_records; i++) {
-		offset = (db_indexkey_t *)((char *)rv + (i * keysz));
-		offset->childnode = NULL;
-		offset->data = (char **)((char *)offset + sizeof(db_indexkey_t));
+	if ( cs < idx->total_node_count ) {
+		slot = idx->free_slots[cs];
+		rv = (db_idxnode_t *)(idx->nodeset + (uintptr_t)slot * (uintptr_t)idx->idx_schema->node_size);
+		idx->used_slots[slot] = cs;
+		idx->free_slots[cs] = RECORD_NUM_MAX;
+		idx->free_node_slot = cs == 0 ? RECORD_NUM_MAX : cs - 1;
 	}
+	return rv;
+}
+
+bool dbidx_release_node(db_index_t *idx, db_idxnode_t *node) {
+	bool rv = false;
+	record_num_t slot = (record_num_t)(((char *)node - idx->nodeset) / idx->idx_schema->node_size);
+
+	if ( slot < idx->total_node_count && idx->used_slots[slot] < RECORD_NUM_MAX) {
+		idx->used_slots[slot] = RECORD_NUM_MAX;
+		idx->free_node_slot++;
+		idx->free_slots[idx->free_node_slot] = slot;
+		rv = true;
+	}
+	return rv;
+}
+
+char *dbidx_allocate_node_block(db_index_schema_t *idx, record_num_t num_table_records, uint64_t *node_count) {
+	char *rv = NULL;
+	uint64_t num_nodes = 0, remaining = num_table_records;
+
+	do {
+		remaining = remaining / (idx->index_order / 2);  // worst case is that nodes are half occupied
+		num_nodes += remaining;
+	} while (remaining > idx->index_order);
+	if (remaining > 0)
+		num_nodes++;
+
+	db_idxnode_t *offset = NULL;
+	db_indexkey_t *keyoffset = NULL;
+	rv = malloc(idx->nodekey_size * num_nodes );
+	mlock(rv, idx->nodekey_size * num_nodes);
+	bzero(rv, idx->nodekey_size * num_nodes);
+	for(uint64_t i = 0; i < num_nodes; i++) {
+		offset = (db_idxnode_t *)((char *)rv + (i * idx->nodekey_size));
+		offset->parent = NULL;
+		offset->next = NULL;
+		offset->prev = NULL;
+		offset->children = (db_indexkey_t **)((char *)offset + sizeof(db_idxnode_t));
+		keyoffset = (db_indexkey_t *)((char *)offset->children + sizeof(db_indexkey_t *) * idx->index_order);
+		for(uint64_t k = 0; k < idx->index_order; k++) {
+			keyoffset->data = (char **)((char *)keyoffset + sizeof(db_indexkey_t));
+			offset->children[k] = keyoffset;
+			keyoffset = (db_indexkey_t *)((char *)keyoffset + idx->key_size);
+		}
+	}
+
+	if ( node_count != NULL )
+		*node_count = num_nodes;
+
 	return rv;
 }
 
@@ -66,9 +108,17 @@ void dbidx_reset_key_with_data(db_index_schema_t *idx, db_indexkey_t *key) {
 	*key->data = (char *)key + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 }
 
+db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
+	db_indexkey_t *rv = malloc(idx->key_size);
+	bzero(rv, idx->key_size);
+	mlock(rv, idx->key_size);
+	rv->childnode = NULL;
+	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
+	return rv;
+}
+
 char *dbidx_allocate_key_data(db_index_schema_t *idx) {
 	char *rv = NULL;
-
 	if ( idx == NULL )
 		return rv;
 	rv = malloc(idx->record_size);
@@ -84,9 +134,9 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 
 	/* This is kind of an unsafe strategy, but it should work */
 	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields + sizeof(char *) * idx->record_size;
-	//printf("Allocating a total of %ld bytes (%ld %ld %ld)\n", keysz, sizeof(db_indexkey_t), sizeof(char *) * idx->num_fields, sizeof(char *) * idx->record_size);
 
 	rv = malloc(keysz);
+	mlock(rv, keysz);
 	bzero(rv, keysz);
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
 	*rv->data = (char *)rv + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
@@ -94,9 +144,7 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 }
 
 bool dbidx_copy_key(db_index_schema_t *idx, db_indexkey_t *src, db_indexkey_t *dst) {
-	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
-
-	memcpy(dst, src, keysz);
+	memcpy(dst, src, idx->key_size);
 	dst->childnode = NULL;
 	dst->data = (char **)((char *)dst + sizeof(db_indexkey_t));
 	return true;
@@ -110,19 +158,10 @@ void dbidx_release_tree(db_index_t *idx, db_idxnode_t *idxnode) {
 	if ( current_node == NULL )
 		return;
 
-	if ( !current_node->is_leaf ) {
-		for(index_order_t i = 0; i < current_node->num_children; i++) {
-			dbidx_release_tree(idx, current_node->children[i]->childnode);
-			free(current_node->children[i]);
-			current_node->children[i] = NULL;
-		}
-	} else {
+	if ( !current_node->is_leaf )
 		for(index_order_t i = 0; i < current_node->num_children; i++)
-			if ( current_node->children[i] != NULL ) {
-				free(current_node->children[i]);
-				current_node->children[i] = NULL;
-			}
-	}
+			dbidx_release_tree(idx, current_node->children[i]->childnode);
+
 	free(current_node);
 	current_node = NULL;
 }
@@ -511,7 +550,7 @@ bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 			} else
 				key->record = cr;
 		}
-		dbidx_add_node_value(idx->idx_schema, current, key);
+		dbidx_add_node_value(idx, current, key);
 		rv = true;
 	}
 
@@ -520,24 +559,29 @@ bool dbidx_add_index_value (db_index_t *idx, db_indexkey_t *key) {
 
 bool dbidx_remove_index_value (db_index_t *idx, db_indexkey_t *key) {
 	db_idxnode_t *leaf_node = dbidx_find_node(idx->idx_schema, idx->root_node, key);
-
-	bool success = dbidx_remove_node_value(idx->idx_schema, leaf_node, key);
-	dbidx_collapse_nodes(idx->idx_schema, idx->root_node);
+	bool success = dbidx_remove_node_value(idx, leaf_node, key);
+	dbidx_collapse_nodes(idx, idx->root_node);
 
 	return success;
 }
 
-db_idxnode_t *dbidx_add_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
-	if ( idxnode->num_children >= idx->index_order )
+db_indexkey_t *dbidx_add_node_value(db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
+	db_index_schema_t *idxs = idx->idx_schema;
+	if ( idxnode->num_children >= idxs->index_order )
 		idxnode = dbidx_split_node(idx, idxnode, key);
 
 	index_order_t i = 0;
-	for( i=0; i < idxnode->num_children && dbidx_compare_keys(idx, idxnode->children[i], key) < 0; i++ );
+	for( i=0; i < idxnode->num_children && dbidx_compare_keys(idxs, idxnode->children[i], key) < 0; i++ );
 
 	if(i < idxnode->num_children) {
-		memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(char *) * ((uintptr_t)idxnode->num_children - i));
+		index_order_t k = idxnode->num_children;
+		do {
+			k--;
+			dbidx_copy_key(idxs, idxnode->children[k], idxnode->children[k+1]);
+			idxnode->children[k+1]->childnode = idxnode->children[k]->childnode;
+		} while (k > i);
 	} else if ( i == idxnode->num_children ) {
-		dbidx_update_max_value(idx, idxnode->parent, idxnode, key);
+		dbidx_update_max_value(idxs, idxnode->parent, idxnode, key);
 	}
 
 	(idxnode->num_children)++;
@@ -547,50 +591,43 @@ db_idxnode_t *dbidx_add_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode
 		node keys are internally allocated and can be pointed to immeediately and will
 		be released properly when cleaned up
 	*/
-	if ( !idxnode->is_leaf ) {
-		idxnode->children[i] = key;
-	} else {
-		db_indexkey_t *new_key = dbidx_allocate_key(idx);
-		dbidx_copy_key(idx, key, new_key);
-		new_key->childnode = idxnode;
-		idxnode->children[i] = new_key;
-	}
+	dbidx_copy_key(idxs, key, idxnode->children[i]);
+	if ( idxnode->is_leaf )
+		idxnode->children[i]->childnode = idxnode;
 
-	return idxnode;
+	return idxnode->children[i];
 }
 
-bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
-	db_indexkey_t *v;
-	//char msg[128];
+bool dbidx_remove_node_value(db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
+	db_index_schema_t *idxs = idx->idx_schema;
 	bool success = false;
-	int merge_amt = idx->index_order / 2;
+	int merge_amt = idxs->index_order / 2;
 
-	while ( dbidx_compare_keys(idx, idxnode->children[0], key) <= 0 ) {
+	while ( dbidx_compare_keys(idxs, idxnode->children[0], key) <= 0 ) {
 		for ( index_order_t i = 0; i < idxnode->num_children; i++ ) {
-			if ( dbidx_compare_keys(idx, idxnode->children[i], key) == 0 ) {
-				v = idxnode->children[i];
-
-				for ( index_order_t k = i+1; k < idxnode->num_children; k++)
-					idxnode->children[k-1] = idxnode->children[k];
+			if ( dbidx_compare_keys(idxs, idxnode->children[i], key) == 0 ) {
+				for ( index_order_t k = i+1; k < idxnode->num_children; k++) {
+					dbidx_copy_key(idxs, idxnode->children[k], idxnode->children[k-1]);
+					idxnode->children[k-1]->childnode = idxnode->children[k]->childnode;
+				}
 
 				(idxnode->num_children)--;
-				idxnode->children[idxnode->num_children] = 0;
-				free(v);
+				dbidx_reset_key(idxs, idxnode->children[idxnode->num_children]);
 
 				if ( idxnode->num_children > 0 && idxnode->num_children <= merge_amt ) {
 					int free_count = 0;
 
 					if ( idxnode->prev != NULL )
-						free_count += idx->index_order - idxnode->prev->num_children;
+						free_count += idxs->index_order - idxnode->prev->num_children;
 					if ( idxnode->next != NULL )
-						free_count += idx->index_order - idxnode->next->num_children;
+						free_count += idxs->index_order - idxnode->next->num_children;
 
 					if ( free_count > idxnode->num_children ) {
 						int move_left, move_right, free_left, free_right;
 						db_idxnode_t *c;
 
-						free_left = idxnode->prev == NULL ? 0 : idx->index_order - idxnode->prev->num_children;
-						free_right = idxnode->next == NULL ? 0 : idx->index_order - idxnode->next->num_children;
+						free_left = idxnode->prev == NULL ? 0 : idxs->index_order - idxnode->prev->num_children;
+						free_right = idxnode->next == NULL ? 0 : idxs->index_order - idxnode->next->num_children;
 
 						if ( free_left > free_right ) {
 							move_right =  idxnode->num_children / 2;
@@ -601,6 +638,11 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 							move_right = idxnode->num_children - move_left;
 
 						}
+
+						/*
+						Figure how much may be distrubted left (if any) and right (if any)
+						Attempt to weight the distribution to the 'more empty' side
+						*/
 
 						while ( free_left < move_left || free_right < move_right ) {
 							if ( free_left < move_left ) {
@@ -614,37 +656,42 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 
 						if ( move_right > 0 && idxnode->next != NULL ) {
 							c = idxnode->next;
-							memmove(c->children + move_right, c->children, sizeof(char *) * c->num_children);
-							for ( int k = 0; k < move_right; k++ ) {
-								c->children[k] = idxnode->children[move_left + k];
+							index_order_t k = c->num_children;
+							do {
+								k--;
+								dbidx_copy_key(idxs, c->children[k], c->children[k+move_right]);
+								c->children[k+move_right]->childnode = c->children[k]->childnode;
+							} while ( k > 0 );
+
+							for ( k = 0; k < move_right; k++ ) {
+								dbidx_copy_key(idxs, idxnode->children[move_left + k], c->children[k]);
+								c->children[k]->childnode = idxnode->children[move_left + k]->childnode;
+
 								if ( !c->is_leaf )
 									c->children[k]->childnode->parent = c;
 
 								(c->num_children)++;
-								idxnode->children[move_left + k] = 0;
+								dbidx_reset_key(idxs, idxnode->children[move_left + k]);
 							}
 						}
 
 						if ( move_left > 0 && idxnode->prev != NULL ) {
 							c = idxnode->prev;
-							for ( int k = 0; k < move_left; k++ ) {
-								c->children[c->num_children] = idxnode->children[k];
+							for ( index_order_t k = 0; k < move_left; k++ ) {
+								dbidx_copy_key(idxs, idxnode->children[k], c->children[c->num_children]);
+								c->children[c->num_children]->childnode = idxnode->children[k]->childnode;
+
 								if ( !c->is_leaf )
 									c->children[c->num_children]->childnode->parent = c;
 
 								(c->num_children)++;
-								idxnode->children[k] = 0;
+								dbidx_reset_key(idxs, idxnode->children[k]);
 							}
-							dbidx_update_max_value(idx, c->parent, c, c->children[c->num_children-1]);
+							dbidx_update_max_value(idxs, c->parent, c, c->children[c->num_children-1]);
 						}
 
 						(idxnode->num_children) -= move_right;
 						(idxnode->num_children) -= move_left;
-						/*
-						Figure how much may be distrubted left (if any) and right (if any)
-						Attempt to weight the distribution to the 'more empty' side
-						*/
-						//memmove(idxnode->children + i + 1, idxnode->children + i, sizeof(void *) * (idxnode->num_children - i));
 					}
 				}
 
@@ -662,10 +709,13 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 								break;
 							}
 						}
-						free(idxnode);
+						if ( idx->nodeset != NULL )
+							dbidx_release_node(idx, idxnode);
+						else
+							free(idxnode);
 					} else {
 						if (i == idxnode->num_children ) {
-							dbidx_update_max_value(idx, idxnode->parent, idxnode, idxnode->children[i-1]);
+							dbidx_update_max_value(idxs, idxnode->parent, idxnode, idxnode->children[i-1]);
 						}
 					}
 				}
@@ -690,28 +740,31 @@ bool dbidx_remove_node_value(db_index_schema_t *idx, db_idxnode_t *idxnode, db_i
 	return success;
 }
 
-db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
+db_idxnode_t *dbidx_split_node(db_index_t *idx, db_idxnode_t *idxnode, db_indexkey_t *key) {
+	db_index_schema_t *idxs = idx->idx_schema;
 	index_order_t nc = idxnode->num_children / 2;
 	db_idxnode_t *rv = NULL;
 
 	// determine if the new value causing the split will be on the right or left side of the split
 	// and make that node slightly emptier
-	if ( dbidx_compare_keys(idx, idxnode->children[nc], key) < 0 )
+	if ( dbidx_compare_keys(idxs, idxnode->children[nc], key) < 0 )
 		nc++;
 
 	if ( idxnode->parent != idxnode ) {
 		// check lower range for availability, if we can locate there
-		if ( idxnode->prev != NULL && idxnode->is_leaf && dbidx_compare_keys(idx, idxnode->children[0], key) > 0 )
-			if ( idxnode->prev->num_children < idx->index_order )
+		if ( idxnode->prev != NULL && idxnode->is_leaf && dbidx_compare_keys(idxs, idxnode->children[0], key) > 0 )
+			if ( idxnode->prev->num_children < idxs->index_order )
 				return idxnode->prev;
 
 		// split node if there is no room
-		if ( idxnode->parent->num_children >= idx->index_order )
+		if ( idxnode->parent->num_children >= idxs->index_order )
 			dbidx_split_node(idx, idxnode->parent, key);
 
-		db_idxnode_t *new_node, *child_node;
-		new_node = dbidx_allocate_node(idx);
-		db_indexkey_t *new_k = dbidx_allocate_key(idx);
+		db_idxnode_t *new_node;
+		if ( idx->nodeset != NULL )
+			new_node = dbidx_reserve_node(idx);
+		else
+			new_node = dbidx_allocate_node(idxs);
 
 		new_node->is_leaf = idxnode->is_leaf;
 		new_node->parent = idxnode->parent;
@@ -722,36 +775,35 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db
 		new_node->next = idxnode;
 		idxnode->prev = new_node;
 
-		for(int i=0; i<nc; i++) {
-			if( !new_node->is_leaf ) {
-				child_node = idxnode->children[i]->childnode;
-				child_node->parent = new_node;
-			}
-			new_node->children[i] = idxnode->children[i];
+		for(index_order_t i=0; i<nc; i++) {
+			dbidx_copy_key(idxs, idxnode->children[i], new_node->children[i]);
+			new_node->children[i]->childnode = idxnode->children[i]->childnode;
+			bzero(idxnode->children[i], idx->idx_schema->key_size);
+			if( !new_node->is_leaf )
+				new_node->children[i]->childnode->parent = new_node;
 			new_node->num_children++;
 		}
 
-		dbidx_copy_key(idx, new_node->children[new_node->num_children-1], new_k);
-		new_k->childnode = new_node;
+		db_indexkey_t *parent_key = dbidx_add_node_value(idx, idxnode->parent, new_node->children[new_node->num_children-1]);
+		parent_key->childnode = new_node;
 
-		dbidx_add_node_value(idx, idxnode->parent, new_k);
-
-		for(int i=0; i<idxnode->num_children - nc; i++) {
-			idxnode->children[i] = idxnode->children[nc+i];
-			idxnode->children[nc+i] = 0;
+		for(index_order_t i=0; i<idxnode->num_children - nc; i++) {
+			dbidx_copy_key(idxs, idxnode->children[nc+i], idxnode->children[i]);
+			idxnode->children[i]->childnode = idxnode->children[nc+i]->childnode;
+			bzero(idxnode->children[nc+i], idx->idx_schema->key_size);
 		}
 
 		idxnode->num_children -= nc;
 
-		if ( dbidx_compare_keys(idx, new_node->children[new_node->num_children - 1], key) < 0 &&
-				dbidx_compare_keys(idx, idxnode->children[0], key) > 0 ) {
+		if ( dbidx_compare_keys(idxs, new_node->children[new_node->num_children - 1], key) < 0 &&
+				dbidx_compare_keys(idxs, idxnode->children[0], key) > 0 ) {
 			if ( new_node->num_children >= idxnode->num_children ) {
 				rv = idxnode;
 			} else {
 				rv = new_node;
 			}
 
-		} else if ( dbidx_compare_keys(idx, new_node->children[new_node->num_children - 1], key) > 0 ) {
+		} else if ( dbidx_compare_keys(idxs, new_node->children[new_node->num_children - 1], key) > 0 ) {
 			rv = new_node;
 
 		} else {
@@ -761,66 +813,56 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db
 
 	} else if ( idxnode->parent == idxnode ) {
 		/* special case for the root node */
-		db_idxnode_t *new_left, *new_right, *child_node;
-		db_indexkey_t *new_left_k, *new_right_k;
+		db_idxnode_t *new_left, *new_right;
 		db_indexkey_t *old_left_k = NULL, *old_right_k = NULL;
 
-		new_left = dbidx_allocate_node(idx);
-		new_right = dbidx_allocate_node(idx);
-
-		new_left_k = dbidx_allocate_key(idx);
-		new_right_k = dbidx_allocate_key(idx);
+		new_left = dbidx_allocate_node(idxs);
+		new_right = dbidx_allocate_node(idxs);
 
 		/* fix the new left node */
 		new_left->is_leaf = idxnode->is_leaf;
 		new_left->parent = idxnode;
 		for(int i=0; i < nc; i++) {
-			if( !new_left->is_leaf ) {
-				child_node = idxnode->children[i]->childnode;
-				child_node->parent = new_left;
-			}
-			new_left->children[i] = idxnode->children[i];
+			dbidx_copy_key(idxs, idxnode->children[i], new_left->children[i]);
 			old_left_k = new_left->children[i];
-			idxnode->children[i] = NULL;
+			bzero(idxnode->children[i], idxs->key_size);
 			new_left->num_children++;
+			if( !new_left->is_leaf )
+				new_left->children[i]->childnode->parent = new_left;
 		}
 
-		dbidx_copy_key(idx, old_left_k, new_left_k);
-		new_left_k->childnode = new_left;
+		dbidx_copy_key(idxs, old_left_k, idxnode->children[0]);
+		idxnode->children[0]->childnode = new_left;
 
 		/* fix the new right node */
 		new_right->is_leaf = idxnode->is_leaf;
 		new_right->parent = idxnode;
 		for(int i=nc; i < idxnode->num_children; i++) {
-			if( !new_right->is_leaf ) {
-				child_node = idxnode->children[i]->childnode;
-				child_node->parent = new_right;
-			}
-			new_right->children[i - nc] = idxnode->children[i];
+			dbidx_copy_key(idxs, idxnode->children[i], new_right->children[i - nc]);
 			old_right_k = new_right->children[i - nc];
-			idxnode->children[i] = NULL;
+			bzero(idxnode->children[i], idxs->key_size);
 			new_right->num_children++;
+			if( !new_right->is_leaf )
+				new_right->children[i - nc]->childnode->parent = new_right;
 		}
 
-		dbidx_copy_key(idx, old_right_k, new_right_k);
-		new_right_k->childnode = new_right;
+		dbidx_copy_key(idxs, old_right_k, idxnode->children[1]);
+		idxnode->children[1]->childnode = new_right;
 
 		idxnode->is_leaf = false;
 		idxnode->num_children = 2;
-		idxnode->children[0] = new_left_k;
-		idxnode->children[1] = new_right_k;
 
 		new_left->next = new_right;
 		new_right->prev = new_left;
 
-		if ( dbidx_compare_keys(idx, new_left->children[new_left->num_children - 1], key) < 0 &&
-				dbidx_compare_keys(idx, new_right->children[0], key) > 0 ) {
+		if ( dbidx_compare_keys(idxs, new_left->children[new_left->num_children - 1], key) < 0 &&
+				dbidx_compare_keys(idxs, new_right->children[0], key) > 0 ) {
 			if ( new_left->num_children >= new_right->num_children ) {
 				rv = new_right;
 			} else {
 				rv = new_left;
 			}
-		} else if ( dbidx_compare_keys(idx, new_left->children[new_left->num_children - 1], key) > 0 ) {
+		} else if ( dbidx_compare_keys(idxs, new_left->children[new_left->num_children - 1], key) > 0 ) {
 			rv = new_left;
 		} else {
 			rv = new_right;
@@ -830,17 +872,18 @@ db_idxnode_t *dbidx_split_node(db_index_schema_t *idx, db_idxnode_t *idxnode, db
 	return rv;
 }
 
-void dbidx_collapse_nodes(db_index_schema_t *idx, db_idxnode_t *idxnode) {
+void dbidx_collapse_nodes(db_index_t *idx, db_idxnode_t *idxnode) {
 	if ( idxnode->is_leaf )
 			return;
 
+	db_index_schema_t *idxs = idx->idx_schema;
 	index_order_t nc = dbidx_num_child_records(idxnode);
 
 	//should this be < or <=?
-	if ( nc <= idx->index_order && nc > 0 ) {
+	if ( nc <= idxs->index_order && nc > 0 ) {
 
 		db_idxnode_t *cn = idxnode->children[0]->childnode;
-		db_indexkey_t *children[idx->index_order];
+		db_indexkey_t *children[idxs->index_order];
 		int index = 0;
 
 		idxnode->is_leaf = cn->is_leaf;
@@ -856,7 +899,7 @@ void dbidx_collapse_nodes(db_index_schema_t *idx, db_idxnode_t *idxnode) {
 			free(cn);
 		}
 
-		for(index_order_t i = 0; i < idx->index_order; i++) {
+		for(index_order_t i = 0; i < idxs->index_order; i++) {
 			if ( i < idxnode->num_children )
 				free(idxnode->children[i]);
 			idxnode->children[i] = NULL;
