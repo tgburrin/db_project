@@ -94,6 +94,7 @@ bool load_dd_indexes(db_table_t *tbl) {
 	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
 		db_index_t *idx = tbl->indexes[i];
 
+		/*
 		if ( strcmp(idx->index_name, "client_id_id_idx_uq") == 0 ) {
 			printf("Using special handling for index\n");
 			uint64_t nc = 0;
@@ -107,6 +108,7 @@ bool load_dd_indexes(db_table_t *tbl) {
 				idx->used_slots[i] = RECORD_NUM_MAX;
 			}
 		}
+		*/
 
 		sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
 		idxfile = malloc(sz);
