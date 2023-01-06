@@ -37,7 +37,7 @@ db_idxnode_t *dbidx_reserve_node(db_index_t *idx) {
 
 	if ( cs < idx->total_node_count ) {
 		slot = idx->free_slots[cs];
-		rv = (db_idxnode_t *)(idx->nodeset + (uintptr_t)slot * (uintptr_t)idx->idx_schema->node_size);
+		rv = (db_idxnode_t *)(idx->nodeset + (uintptr_t)slot * (uintptr_t)idx->idx_schema->nodekey_size);
 		idx->used_slots[slot] = cs;
 		idx->free_slots[cs] = RECORD_NUM_MAX;
 		idx->free_node_slot = cs == 0 ? RECORD_NUM_MAX : cs - 1;
@@ -47,7 +47,7 @@ db_idxnode_t *dbidx_reserve_node(db_index_t *idx) {
 
 bool dbidx_release_node(db_index_t *idx, db_idxnode_t *node) {
 	bool rv = false;
-	record_num_t slot = (record_num_t)(((char *)node - idx->nodeset) / idx->idx_schema->node_size);
+	record_num_t slot = (record_num_t)(((char *)node - idx->nodeset) / idx->idx_schema->nodekey_size);
 
 	if ( slot < idx->total_node_count && idx->used_slots[slot] < RECORD_NUM_MAX) {
 		idx->used_slots[slot] = RECORD_NUM_MAX;
@@ -70,7 +70,7 @@ char *dbidx_allocate_node_block(db_index_schema_t *idx, record_num_t num_table_r
 		num_nodes++;
 
 	db_idxnode_t *offset = NULL;
-	db_indexkey_t *keyoffset = NULL;
+	char *keyoffset = NULL;
 	rv = malloc(idx->nodekey_size * num_nodes );
 	mlock(rv, idx->nodekey_size * num_nodes);
 	bzero(rv, idx->nodekey_size * num_nodes);
@@ -80,11 +80,10 @@ char *dbidx_allocate_node_block(db_index_schema_t *idx, record_num_t num_table_r
 		offset->next = NULL;
 		offset->prev = NULL;
 		offset->children = (db_indexkey_t **)((char *)offset + sizeof(db_idxnode_t));
-		keyoffset = (db_indexkey_t *)((char *)offset->children + sizeof(db_indexkey_t *) * idx->index_order);
+		keyoffset = (char *)offset->children + sizeof(db_indexkey_t *) * idx->index_order;
 		for(uint64_t k = 0; k < idx->index_order; k++) {
-			keyoffset->data = (char **)((char *)keyoffset + sizeof(db_indexkey_t));
-			offset->children[k] = keyoffset;
-			keyoffset = (db_indexkey_t *)((char *)keyoffset + idx->key_size);
+			offset->children[k] = (db_indexkey_t *)(keyoffset + (k * idx->key_size));
+			offset->children[k]->data = (char **)((char *)offset->children[k] + sizeof(db_indexkey_t));
 		}
 	}
 

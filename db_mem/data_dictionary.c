@@ -544,10 +544,13 @@ void release_data_dictionary(data_dictionary_t **dd) {
 		dd_table_schema_t *s = t->schema;
 		if ( t->indexes != NULL ) {
 			for(uint8_t idxcnt = 0; idxcnt < t->num_indexes; idxcnt++) {
-				if (t->indexes[idxcnt]->root_node != NULL)
-					dbidx_release_tree(t->indexes[idxcnt], NULL);
-				if (t->indexes[idxcnt]->nodeset != NULL)
+				if (t->indexes[idxcnt]->nodeset != NULL) {
 					free(t->indexes[idxcnt]->nodeset);
+					t->indexes[idxcnt]->root_node = NULL;
+					t->indexes[idxcnt]->nodeset = NULL;
+				} else if (t->indexes[idxcnt]->root_node != NULL) {
+					dbidx_release_tree(t->indexes[idxcnt], NULL);
+				}
 				free(t->indexes[idxcnt]->idx_schema->fields);
 				free(t->indexes[idxcnt]);
 			}
