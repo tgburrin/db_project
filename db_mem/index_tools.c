@@ -820,7 +820,7 @@ db_idxnode_t *dbidx_split_node(db_index_t *idx, db_idxnode_t *idxnode, db_indexk
 
 	} else if ( idxnode->parent == idxnode ) {
 		/* special case for the root node */
-		db_idxnode_t *new_left, *new_right;
+		db_idxnode_t *new_left, *new_right, *cn;
 		db_indexkey_t *old_left_k = NULL, *old_right_k = NULL;
 
 		new_left = dbidx_allocate_node(idxs);
@@ -830,7 +830,9 @@ db_idxnode_t *dbidx_split_node(db_index_t *idx, db_idxnode_t *idxnode, db_indexk
 		new_left->is_leaf = idxnode->is_leaf;
 		new_left->parent = idxnode;
 		for(int i=0; i < nc; i++) {
+			cn = idxnode->children[i]->childnode;
 			dbidx_copy_key(idxs, idxnode->children[i], new_left->children[i]);
+			new_left->children[i]->childnode = cn;
 			old_left_k = new_left->children[i];
 			bzero(idxnode->children[i], idxs->key_size);
 			new_left->num_children++;
@@ -845,7 +847,9 @@ db_idxnode_t *dbidx_split_node(db_index_t *idx, db_idxnode_t *idxnode, db_indexk
 		new_right->is_leaf = idxnode->is_leaf;
 		new_right->parent = idxnode;
 		for(int i=nc; i < idxnode->num_children; i++) {
+			cn = idxnode->children[i]->childnode;
 			dbidx_copy_key(idxs, idxnode->children[i], new_right->children[i - nc]);
+			new_right->children[i - nc]->childnode = cn;
 			old_right_k = new_right->children[i - nc];
 			bzero(idxnode->children[i], idxs->key_size);
 			new_right->num_children++;

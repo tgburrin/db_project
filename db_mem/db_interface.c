@@ -393,6 +393,9 @@ bool read_index_table_records(db_table_t *tbl, db_index_t *idx) {
 	if ( tbl == NULL || tbl->mapped_table == NULL)
 		return false;
 
+	if ( idx->root_node == NULL )
+		idx->root_node = dbidx_init_root_node(idx);
+
 	record_num_t recordcount = 0;
 	printf("%" PRIu64 " slots to be examined\n", (uint64_t)tbl->mapped_table->total_record_count);
 	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
