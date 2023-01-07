@@ -546,6 +546,7 @@ void release_data_dictionary(data_dictionary_t **dd) {
 			for(uint8_t idxcnt = 0; idxcnt < t->num_indexes; idxcnt++) {
 				if (t->indexes[idxcnt]->nodeset != NULL) {
 					free(t->indexes[idxcnt]->nodeset);
+					//munmap(t->indexes[idxcnt]->nodeset, t->indexes[idxcnt]->idx_schema->nodekey_size * t->indexes[idxcnt]->total_node_count);
 					t->indexes[idxcnt]->root_node = NULL;
 					t->indexes[idxcnt]->nodeset = NULL;
 				} else if (t->indexes[idxcnt]->root_node != NULL) {

@@ -20,6 +20,7 @@ db_idxnode_t *dbidx_allocate_node(db_index_schema_t *idx) {
 	rv = malloc(idx->nodekey_size);
 	mlock(rv, idx->nodekey_size);
 	bzero(rv, idx->nodekey_size);
+	madvise(rv, idx->nodekey_size, MADV_UNMERGEABLE);
 	rv->parent = NULL;
 	rv->next = NULL;
 	rv->prev = NULL;
@@ -60,18 +61,25 @@ bool dbidx_release_node(db_index_t *idx, db_idxnode_t *node) {
 
 char *dbidx_allocate_node_block(db_index_schema_t *idx, record_num_t num_table_records, uint64_t *node_count) {
 	char *rv = NULL;
-	uint64_t num_nodes = 0, remaining = num_table_records;
+	uint64_t num_nodes = 0, remaining = num_table_records, div = 0;
+	div = (idx->index_order / 4) * 3;
+	if ( div == 0 )
+		div = 2;
 
 	do {
-		remaining = remaining / (idx->index_order / 2);  // worst case is that nodes are half occupied
+		remaining = remaining / div;
 		num_nodes += remaining;
 	} while (remaining > idx->index_order);
 	if (remaining > 0)
 		num_nodes++;
 
+	// 10% overhead
+	//num_nodes += num_nodes / 10;
+
 	db_idxnode_t *offset = NULL;
 	char *keyoffset = NULL;
 	rv = malloc(idx->nodekey_size * num_nodes );
+	//rv = mmap(NULL, idx->nodekey_size * num_nodes, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
 	mlock(rv, idx->nodekey_size * num_nodes);
 	bzero(rv, idx->nodekey_size * num_nodes);
 	for(uint64_t i = 0; i < num_nodes; i++) {

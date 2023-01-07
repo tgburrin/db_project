@@ -44,6 +44,7 @@ bool set_table_field_value_bool(dd_table_schema_t *, char *, bool);
 bool set_table_field_value_uint(dd_table_schema_t *, char *, uint64_t);
 bool set_table_field_value_int(dd_table_schema_t *, char *, int64_t);
 
+bool init_index_block(db_table_t *tbl, db_index_t *idx);
 bool read_index_file_records(db_table_t *tbl, db_index_t *idx);
 bool read_index_table_records(db_table_t *tbl, db_index_t *idx);
 
