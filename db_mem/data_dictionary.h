@@ -18,6 +18,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 
 #include <cjson/cJSON.h>
 #include "utils.h"
@@ -148,6 +149,7 @@ char *read_dd_json_file(char *);
 dd_table_schema_t *init_dd_schema(char *, uint8_t);
 db_table_t *init_db_table(char *, dd_table_schema_t *, record_num_t);
 db_index_t *init_db_idx(char *, uint8_t);
+void set_dd_index_order(db_index_schema_t *, index_order_t);
 dd_datafield_t *init_dd_field_type(char *, datatype_t, uint8_t);
 dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 
@@ -254,6 +256,7 @@ void dbidx_update_max_value (db_index_schema_t *, db_idxnode_t *, db_idxnode_t *
 void dbidx_key_print(db_index_schema_t *, db_indexkey_t *);
 
 void dbidx_print_tree(db_index_t *, db_idxnode_t *, uint64_t *);
+void dbidx_print_full_tree(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
 

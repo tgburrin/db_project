@@ -93,6 +93,9 @@ bool load_dd_indexes(db_table_t *tbl) {
 	char *idxfile = NULL;
 	for(uint8_t i = 0; i < tbl->num_indexes; i++) {
 		db_index_t *idx = tbl->indexes[i];
+
+		//init_index_block(tbl, idx);
+
 		sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
 		idxfile = malloc(sz);
 		bzero(idxfile, sz);
@@ -212,6 +215,19 @@ char * find_db_record(db_table_t *tbl, char *record, char *index_name) {
 }
 */
 
+bool init_index_block(db_table_t *tbl, db_index_t *idx) {
+	uint64_t nc = 0;
+	idx->nodeset = dbidx_allocate_node_block(idx->idx_schema, tbl->total_record_count, &nc);
+	idx->total_node_count = nc;
+	idx->free_node_slot = nc - 1;
+	idx->used_slots = calloc(sizeof(record_num_t), nc);
+	idx->free_slots = calloc(sizeof(record_num_t), nc);
+	for(record_num_t i = 0; i < nc; i++) {
+		idx->free_slots[i] = i;
+		idx->used_slots[i] = RECORD_NUM_MAX;
+	}
+	return true;
+}
 
 bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 	char *ipth;
@@ -376,6 +392,9 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 bool read_index_table_records(db_table_t *tbl, db_index_t *idx) {
 	if ( tbl == NULL || tbl->mapped_table == NULL)
 		return false;
+
+	if ( idx->root_node == NULL )
+		idx->root_node = dbidx_init_root_node(idx);
 
 	record_num_t recordcount = 0;
 	printf("%" PRIu64 " slots to be examined\n", (uint64_t)tbl->mapped_table->total_record_count);

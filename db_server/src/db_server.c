@@ -10,6 +10,7 @@
 
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/personality.h>
 
 #include <zlib.h>
 
@@ -930,6 +931,14 @@ int main (int argc, char **argv) {
 	data_dictionary_t **data_dictionary = NULL;
 
 	struct Server app_server;
+
+	/*
+	 * https://rigtorp.se/virtual-memory/
+	 */
+	if ( personality(ADDR_NO_RANDOMIZE) < 0 ) {
+		fprintf(stderr, "Could not set personality to compact mem\n");
+		return EXIT_FAILURE;
+	}
 
 	while ((c = getopt(argc, argv, "d:f:")) != -1) {
 		switch(c) {
