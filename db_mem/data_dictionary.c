@@ -240,11 +240,8 @@ data_dictionary_t **build_dd_from_json(char *filename) {
 			cJSON *idxattr = cJSON_GetObjectItemCaseSensitive(index, "order");
 			if ( idxattr != NULL && cJSON_IsNumber(idxattr) ) {
 				double ord = cJSON_GetNumberValue(idxattr);
-				if ( ord > 0 && ord < INDEX_ORDER_MAX ) {
-					tbl->indexes[i]->idx_schema->index_order = (index_order_t)ord;
-					tbl->indexes[i]->idx_schema->node_size = sizeof(db_idxnode_t) + sizeof(db_indexkey_t *) * tbl->indexes[i]->idx_schema->index_order;
-					tbl->indexes[i]->idx_schema->nodekey_size = tbl->indexes[i]->idx_schema->node_size +  tbl->indexes[i]->idx_schema->key_size * tbl->indexes[i]->idx_schema->index_order;
-				}
+				if ( ord > 0 && ord < INDEX_ORDER_MAX )
+					set_dd_index_order(tbl->indexes[i]->idx_schema, (index_order_t)ord);
 			}
 			idxattr = cJSON_GetObjectItemCaseSensitive(index, "unique");
 			if ( idxattr != NULL && cJSON_IsBool(idxattr) && cJSON_IsTrue(idxattr))
@@ -379,8 +376,8 @@ data_dictionary_t **build_dd_from_dat(char *filename) {
 			readsz += sizeof(db_index_schema_t);
 
 			t->indexes[idxc] = init_db_idx(idx->index_name, idxs->num_fields);
-			t->indexes[idxc]->idx_schema->index_order = idxs->index_order;
-			t->indexes[idxc]->idx_schema->node_size = sizeof(db_idxnode_t) + sizeof(db_indexkey_t *) * idxs->index_order;
+			set_dd_index_order(t->indexes[idxc]->idx_schema, idxs->index_order);
+
 			t->indexes[idxc]->idx_schema->record_size = idxs->record_size;
 			t->indexes[idxc]->idx_schema->is_unique = idxs->is_unique;
 			for(uint8_t idxfc = 0; idxfc < t->indexes[idxc]->idx_schema->num_fields; idxfc++) {
@@ -624,17 +621,22 @@ db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
 	idxschema->fields = (dd_datafield_t **)((char *)idxschema + sizeof(db_index_schema_t));
 
 	strcpy(idx->index_name, index_name);
-	idxschema->index_order = 5;
-	idxschema->node_size = sizeof(db_idxnode_t) + sizeof(db_indexkey_t *) * idxschema->index_order;
 	idxschema->is_unique = false;
 	idxschema->num_fields = num_fields;
 	idxschema->key_size = sizeof(db_indexkey_t) + sizeof(char *) * idxschema->num_fields;
-	idxschema->nodekey_size = idxschema->node_size +  idxschema->key_size * idxschema->index_order;
+	set_dd_index_order(idxschema, 5);
+
 	idxschema->fields = calloc(num_fields, sizeof(dd_datafield_t *));
 	mlock(*idxschema->fields, sizeof(*idxschema->fields));
 	idx->idx_schema = idxschema;
 	idx->root_node = NULL;
 	return idx;
+}
+
+void set_dd_index_order(db_index_schema_t *idxs, index_order_t ord) {
+	idxs->index_order = ord;
+	idxs->node_size = sizeof(db_idxnode_t) + sizeof(db_indexkey_t *) * idxs->index_order;
+	idxs->nodekey_size = idxs->node_size +  idxs->key_size * idxs->index_order;
 }
 
 dd_datafield_t *init_dd_field_type(char *field_name, datatype_t type, uint8_t size) {
