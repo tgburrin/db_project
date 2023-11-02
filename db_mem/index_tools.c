@@ -18,8 +18,8 @@ db_idxnode_t *dbidx_allocate_node(db_index_schema_t *idx) {
 		return rv;
 
 	rv = malloc(idx->nodekey_size);
-	mlock(rv, idx->nodekey_size);
 	bzero(rv, idx->nodekey_size);
+	mlock(rv, idx->nodekey_size);
 	madvise(rv, idx->nodekey_size, MADV_UNMERGEABLE);
 	rv->parent = NULL;
 	rv->next = NULL;
@@ -80,8 +80,8 @@ char *dbidx_allocate_node_block(db_index_schema_t *idx, record_num_t num_table_r
 	char *keyoffset = NULL;
 	rv = malloc(idx->nodekey_size * num_nodes );
 	//rv = mmap(NULL, idx->nodekey_size * num_nodes, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-	mlock(rv, idx->nodekey_size * num_nodes);
 	bzero(rv, idx->nodekey_size * num_nodes);
+	mlock(rv, idx->nodekey_size * num_nodes);
 	for(uint64_t i = 0; i < num_nodes; i++) {
 		offset = (db_idxnode_t *)((char *)rv + (i * idx->nodekey_size));
 		offset->parent = NULL;
@@ -145,8 +145,8 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 	size_t keysz = sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields + sizeof(char *) * idx->record_size;
 
 	rv = malloc(keysz);
-	mlock(rv, keysz);
 	bzero(rv, keysz);
+	mlock(rv, keysz);
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
 	rv->data[0] = (char *)rv + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	for(uint8_t i = 1; i < idx->num_fields; i++)
@@ -216,45 +216,45 @@ signed char dbidx_compare_keys(db_index_schema_t *idx, db_indexkey_t *keya, db_i
 			break;
 
 		switch (idx->fields[i]->fieldtype) {
-		case STR:
+		case DD_TYPE_STR:
 			rv = str_compare_sz(keya->data[i], keyb->data[i], idx->fields[i]->field_sz);
 			break;
-		case TIMESTAMP:
+		case DD_TYPE_TIMESTAMP:
 			rv = ts_compare((struct timespec *)keya->data[i], (struct timespec *)keyb->data[i]);
 			break;
-		case BOOL:
+		case DD_TYPE_BOOL:
 			a = *(bool *)keya->data[i];
 			b = *(bool *)keyb->data[i];
 			rv = a == b ? 0 : a > b ? 1 : -1;
 			break;
-		case UUID:
+		case DD_TYPE_UUID:
 			rv = uuid_compare(*((uuid_t *)keya->data[i]), *((uuid_t *)keyb->data[i]));
 			break;
-		case UI64:
+		case DD_TYPE_UI64:
 			rv = ui64_compare((uint64_t *)keya->data[i], (uint64_t *)keyb->data[i]);
 			break;
-		case I64:
+		case DD_TYPE_I64:
 			rv = i64_compare((int64_t *)keya->data[i], (int64_t *)keyb->data[i]);
 			break;
-		case UI32:
+		case DD_TYPE_UI32:
 			rv = ui32_compare((uint32_t *)keya->data[i], (uint32_t *)keyb->data[i]);
 			break;
-		case I32:
+		case DD_TYPE_I32:
 			rv = i32_compare((int32_t *)keya->data[i], (int32_t *)keyb->data[i]);
 			break;
-		case UI16:
+		case DD_TYPE_UI16:
 			rv = ui16_compare((uint16_t *)keya->data[i], (uint16_t *)keyb->data[i]);
 			break;
-		case I16:
+		case DD_TYPE_I16:
 			rv = i16_compare((int16_t *)keya->data[i], (int16_t *)keyb->data[i]);
 			break;
-		case UI8:
+		case DD_TYPE_UI8:
 			rv = ui8_compare((uint8_t *)keya->data[i], (uint8_t *)keyb->data[i]);
 			break;
-		case I8:
+		case DD_TYPE_I8:
 			rv = i8_compare((int8_t *)keya->data[i], (int8_t *)keyb->data[i]);
 			break;
-		case BYTES:
+		case DD_TYPE_BYTES:
 			rv = bytes_compare((unsigned char *)keya->data[i], (unsigned char *)keyb->data[i], idx->fields[i]->field_sz);
 			break;
 		default:
@@ -403,6 +403,36 @@ db_indexkey_t *dbidx_find_prev_record(db_index_t *idx, db_indexkey_t *findkey, d
 }
 
 signed char dbidx_find_node_index(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
+	return dbidx_find_node_index_div(idx, idxnode, find_rec, index);
+}
+
+signed char dbidx_find_node_index_add(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
+	signed char rv = 0;
+	if ( idxnode->num_children == 0 ) {
+		*index = 0;
+		return -1;
+	}
+
+	int16_t i = 0;
+	while ( i < idxnode->num_children && (rv = dbidx_compare_keys(idx, idxnode->children[i], find_rec)) < 0 )
+		i++;
+
+	if ( rv == 0 ) {
+		rv = 0;
+		*index = i;
+	} else if ( rv < 0 ) {
+		rv = 1;
+		*index  = idxnode->num_children - 1;
+	} else {
+		i--;
+		rv = i < 0 ? -1 : 0;
+		*index = i < 0 ? 0 : i;
+	}
+
+	return rv;
+}
+
+signed char dbidx_find_node_index_div(db_index_schema_t *idx, db_idxnode_t *idxnode, db_indexkey_t *find_rec, index_order_t *index) {
 	signed char rv = 0;
 	if ( idxnode->num_children == 0 ) {
 		*index = 0;
@@ -1280,7 +1310,8 @@ void dbidx_write_file_keys(db_index_t *idx) {
 		while ( cn != NULL ) {
 			for(i = 0; i < cn->num_children; i++) {
 				write(fd, *cn->children[i]->data, schema->record_size);
-				write(fd, &cn->children[i]->record, sizeof(uint64_t));
+				//write(fd, &cn->children[i]->record, sizeof(uint64_t));
+				write(fd, &cn->children[i]->record, sizeof(record_num_t));
 				recordcount++;
 			}
 			cn = cn->next;

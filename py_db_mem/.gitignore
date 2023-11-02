@@ -2,3 +2,4 @@
 /Release/*.[do]
 /Release/*.so
 /Release/
+/test-venv/

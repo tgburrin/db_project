@@ -165,7 +165,7 @@ bool is_utc_timestamp(char *timestr) {
 	if ( regexec(&datetime_expr, timestr, 0, 0, 0) == 0 )
 		rv = true;
 
-	 return rv;
+	return rv;
 }
 
 bool parse_time(char *timestr, struct timespec *tm) {
