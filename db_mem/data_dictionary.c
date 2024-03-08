@@ -9,7 +9,23 @@
 
 #include "data_dictionary.h"
 
-char const * datatype_names[] = {"STR", "TIMESTAMP", "BOOL", "I8", "UI8", "I16", "UI16", "I32", "UI32", "I64", "UI64", "UUID", "BYTES"};
+const char * datatype_names[] = {
+	"STR",
+	"TIMESTAMP",
+	"BOOL",
+
+	"I8",
+	"UI8",
+	"I16",
+	"UI16",
+	"I32",
+	"UI32",
+	"I64",
+	"UI64",
+
+	"UUID",
+	"BYTES"
+};
 
 data_dictionary_t **init_data_dictionary(uint32_t num_fields, uint32_t num_schemas, uint32_t num_tables) {
 	data_dictionary_t *dd = (data_dictionary_t *)malloc(sizeof(data_dictionary_t));
@@ -81,10 +97,8 @@ char *read_dd_json_file(char *filename) {
 
 data_dictionary_t **build_dd_from_json(char *filename) {
 	char *filedata = NULL;
-	if ( (filedata = read_dd_json_file(filename)) == NULL ) {
-		fprintf(stderr, "Error reading from %s\n", filename);
-		return NULL;
-	}
+	if ( (filedata = read_dd_json_file(filename)) == NULL )
+		return NULL; //fprintf(stderr, "Error reading from %s\n", filename);
 
 	cJSON *doc = NULL;
 	if ( (doc = cJSON_Parse(filedata)) == NULL ) {
@@ -404,7 +418,7 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
 			printf("\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
-			if ( f->fieldtype == STR || f->fieldtype == BYTES )
+			if ( f->fieldtype == DD_TYPE_STR || f->fieldtype == DD_TYPE_BYTES )
 				printf(" %d", f->field_sz);
 			printf(")\n");
 		}
@@ -420,7 +434,7 @@ void print_data_dictionary(data_dictionary_t *data_dictionary) {
 		for(int k = 0; k < s->field_count; k++) {
 			dd_datafield_t *f = s->fields[k];
 			printf("\t\t%s (%s", f->field_name, map_enum_to_name(f->fieldtype));
-			if ( f->fieldtype == STR || f->fieldtype == BYTES )
+			if ( f->fieldtype == DD_TYPE_STR || f->fieldtype == DD_TYPE_BYTES )
 				printf(" %d", f->field_sz);
 			printf(")\n");
 		}
@@ -577,8 +591,8 @@ db_table_t *init_db_table(char *table_name, dd_table_schema_t *schema, record_nu
 		return NULL;
 
 	db_table_t *t = malloc(sizeof(db_table_t));
-	mlock(t, sizeof(db_table_t));
 	bzero(t, sizeof(db_table_t));
+	mlock(t, sizeof(db_table_t));
 	strcpy(t->table_name, table_name);
 	t->header_size = sizeof(db_table_t);
 	t->total_record_count = size;
@@ -593,8 +607,8 @@ dd_table_schema_t *init_dd_schema(char *schema_name, uint8_t num_fields) {
 
 	size_t sz = sizeof(dd_table_schema_t);
 	dd_table_schema_t *s = malloc(sz);
-	mlock(s, sz);
 	bzero(s, sz);
+	mlock(s, sz);
 	strcpy(s->schema_name, schema_name);
 	s->field_count = 0;
 	s->record_size = 0;
@@ -614,8 +628,8 @@ db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
 	size_t memsz = sizeof(db_index_t) + sizeof(db_index_schema_t) + sizeof(dd_datafield_t *) * num_fields;
 
 	idx = (db_index_t *)malloc(memsz);
-	mlock(idx, memsz);
 	bzero(idx, memsz);
+	mlock(idx, memsz);
 
 	idxschema = (db_index_schema_t *)((char *)idx + sizeof(db_index_t));
 	idxschema->fields = (dd_datafield_t **)((char *)idxschema + sizeof(db_index_schema_t));
@@ -645,8 +659,8 @@ dd_datafield_t *init_dd_field_type(char *field_name, datatype_t type, uint8_t si
 
 	size_t sz = sizeof(dd_datafield_t);
 	dd_datafield_t *f = malloc(sz);
-	mlock(f, sz);
 	bzero(f, sz);
+	mlock(f, sz);
 	strcpy(f->field_name, field_name);
 	f->field_sz = get_dd_field_size(type, size);
 	f->fieldtype = type;
@@ -660,37 +674,37 @@ dd_datafield_t *init_dd_field_str(char *field_name, char *type, uint8_t size) {
 
 	datatype_t field_type;
 	if (strcmp(type, "STR") == 0)
-		field_type = STR;
+		field_type = DD_TYPE_STR;
 	else if (strcmp(type, "TIMESTAMP") == 0)
-		field_type = TIMESTAMP;
+		field_type = DD_TYPE_TIMESTAMP;
 	else if (strcmp(type, "BOOL") == 0)
-		field_type = BOOL;
+		field_type = DD_TYPE_BOOL;
 	else if (strcmp(type, "UUID") == 0)
-		field_type = UUID;
+		field_type = DD_TYPE_UUID;
 	else if (type[0] == 'I')
 		if (strcmp(type, "I64") == 0)
-			field_type = I64;
+			field_type = DD_TYPE_I64;
 		else if (strcmp(type, "I32") == 0)
-			field_type = I32;
+			field_type = DD_TYPE_I32;
 		else if (strcmp(type, "I16") == 0)
-			field_type = I16;
+			field_type = DD_TYPE_I16;
 		else if (strcmp(type, "I8") == 0)
-			field_type = I8;
+			field_type = DD_TYPE_I8;
 		else
 			return NULL;
 	else if (type[0] == 'U')
 		if (strcmp(type, "UI64") == 0)
-			field_type = UI64;
+			field_type = DD_TYPE_UI64;
 		else if (strcmp(type, "UI32") == 0)
-			field_type = UI32;
+			field_type = DD_TYPE_UI32;
 		else if (strcmp(type, "UI16") == 0)
-			field_type = UI16;
+			field_type = DD_TYPE_UI16;
 		else if (strcmp(type, "UI8") == 0)
-			field_type = UI8;
+			field_type = DD_TYPE_UI8;
 		else
 			return NULL;
 	else if (strcmp(type, "BYTES") == 0)
-		field_type = BYTES;
+		field_type = DD_TYPE_BYTES;
 	else
 		return NULL;
 
@@ -706,48 +720,61 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 	char timestampstr[31];
 
 	switch (field->fieldtype) {
-	case STR:
+	case DD_TYPE_STR:
 		snprintf(str, field->field_sz + 1, "%s", data);
+		rv = true;
 		break;
-	case TIMESTAMP:
+	case DD_TYPE_TIMESTAMP:
 		bzero(&timestampstr, sizeof(timestampstr));
 		if ( data != NULL )
 			format_timestamp((struct timespec *)data, timestampstr);
 		sprintf(str, "%s", timestampstr);
+		rv = true;
 		break;
-	case UUID:
+	case DD_TYPE_UUID:
 		uuid_unparse(*(uuid_t *)data, str);
+		rv = true;
 		break;
-	case UI64:
+	case DD_TYPE_UI64:
 		sprintf(str, "%" PRIu64, *(uint64_t *)data);
+		rv = true;
 		break;
-	case I64:
+	case DD_TYPE_I64:
 		sprintf(str, "%" PRIi64, *(int64_t *)data);
+		rv = true;
 		break;
-	case UI32:
+	case DD_TYPE_UI32:
 		sprintf(str, "%" PRIu32, *(uint32_t *)data);
+		rv = true;
 		break;
-	case I32:
+	case DD_TYPE_I32:
 		sprintf(str, "%" PRIi32, *(int32_t *)data);
+		rv = true;
 		break;
-	case UI16:
+	case DD_TYPE_UI16:
 		sprintf(str, "%" PRIu16, *(uint16_t *)data);
+		rv = true;
 		break;
-	case I16:
+	case DD_TYPE_I16:
 		sprintf(str, "%" PRIi16, *(int16_t *)data);
+		rv = true;
 		break;
-	case UI8:
+	case DD_TYPE_UI8:
 		sprintf(str, "%" PRIu8, *(uint8_t *)data);
+		rv = true;
 		break;
-	case I8:
+	case DD_TYPE_I8:
 		sprintf(str, "%" PRIi8, *(int8_t *)data);
+		rv = true;
 		break;
-	case BOOL:
+	case DD_TYPE_BOOL:
 		sprintf(str, "%s", *(bool *)data == true ? "true" : "false");
+		rv = true;
 		break;
-	case BYTES:
+	case DD_TYPE_BYTES:
 		for(uint32_t i = 0; i < field->field_sz; i++)
 			sprintf(str + i * 2, "%02x", ((unsigned char *)data)[i]);
+		rv = true;
 		break;
 	default:
 		break;
@@ -758,49 +785,10 @@ bool dd_type_to_str(dd_datafield_t *field, char *data, char *str) {
 bool dd_type_to_allocstr(dd_datafield_t *field, char *indata, char **outstr) {
 	bool rv = false;
 	char *data = NULL;
-	switch (field->fieldtype) {
-	case STR:
-		data = malloc(field->field_sz + 1);
-		bzero(data, field->field_sz + 1);
-		break;
-	case TIMESTAMP:
-		data = malloc(31);
-		bzero(data, 31);
-		break;
-	case UUID:
-		data = malloc(37);
-		bzero(data, 37);
-		break;
-	case UI64:
-	case I64:
-		data = malloc(21);
-		bzero(data, 21);
-		break;
-	case UI32:
-	case I32:
-		data = malloc(12);
-		bzero(data, 12);
-		break;
-	case UI16:
-	case I16:
-		data = malloc(7);
-		bzero(data, 7);
-		break;
-	case UI8:
-	case I8:
-		data = malloc(5);
-		bzero(data, 5);
-		break;
-	case BOOL:
-		data = malloc(6);
-		bzero(data, 6);
-		break;
-	case BYTES:
-		data = malloc(field->field_sz * 2 + 1);
-		bzero(data, field->field_sz * 2 + 1);
-		break;
-	default:
-		break;
+	size_t sl = dd_type_strlen(field);
+	if ( sl > 0 ) {
+		data = malloc(sl);
+		bzero(data, sl);
 	}
 
 	if ( data != NULL ) {
@@ -808,6 +796,46 @@ bool dd_type_to_allocstr(dd_datafield_t *field, char *indata, char **outstr) {
 		return dd_type_to_str(field, indata, data);
 	} else
 		return rv;
+}
+
+size_t dd_type_strlen(dd_datafield_t *field) {
+	size_t field_str_size = 0;
+	switch(field->fieldtype) {
+		case DD_TYPE_STR:
+			field_str_size = field->field_sz + 1;
+			break;
+		case DD_TYPE_TIMESTAMP:
+			field_str_size = 31; // 2023-01-01T00:00:00.000000000Z
+			break;
+		case DD_TYPE_BOOL:
+			field_str_size = 6; // true / false
+			break;
+		case DD_TYPE_I8:
+		case DD_TYPE_UI8:
+			field_str_size = 5; // -127
+			break;
+		case DD_TYPE_I16:
+		case DD_TYPE_UI16:
+			field_str_size = 7; // -32767
+			break;
+		case DD_TYPE_I32:
+		case DD_TYPE_UI32:
+			field_str_size = 12; // -2147483647
+			break;
+		case DD_TYPE_I64:
+		case DD_TYPE_UI64:
+			field_str_size = 21; // -9223372036854775807
+			break;
+		case DD_TYPE_UUID:
+			field_str_size = 37; // 00000000-0000-0000-0000-000000000000
+			break;
+		case DD_TYPE_BYTES:
+			field_str_size = (field->field_sz * 2) + 1;
+			break;
+		default:
+			fprintf(stderr, "Unknown field type");
+	}
+	return field_str_size;
 }
 
 bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
@@ -820,22 +848,22 @@ bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 	unsigned int hexi = 0;
 
 	switch (field->fieldtype) {
-	case STR:
+	case DD_TYPE_STR:
 		if( strlen(instr) <= field->field_sz ) {
 			memcpy(outdata, instr, field->field_sz);
 			//snprintf(outdata, field->field_sz, "%s", instr);
 			rv = true;
 		}
 		break;
-	case TIMESTAMP:
+	case DD_TYPE_TIMESTAMP:
 		if ( is_utc_timestamp(instr) && parse_timestamp(instr, (struct timespec *)outdata) )
 			rv = true;
 		break;
-	case UUID:
+	case DD_TYPE_UUID:
 		if ( uuid_parse(instr, *(uuid_t *)outdata) == 0 )
 			rv = true;
 		break;
-	case UI64:
+	case DD_TYPE_UI64:
 		puv = strtoumax(instr, &err, 0);
 		if( puv < UINT64_MAX ) {
 			*(uint64_t *)outdata = puv;
@@ -843,56 +871,56 @@ bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 		}
 		//if ( errno == ERANGE ) {}
 		break;
-	case I64:
+	case DD_TYPE_I64:
 		piv = strtoimax(instr, &err, 0);
 		if( piv < INT64_MAX ) {
 			*(int64_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case UI32:
+	case DD_TYPE_UI32:
 		puv = strtoumax(instr, &err, 0);
 		if( puv < UINT32_MAX ) {
 			*(uint32_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case I32:
+	case DD_TYPE_I32:
 		piv = strtoimax(instr, &err, 0);
 		if( piv < INT32_MAX ) {
 			*(int32_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case UI16:
+	case DD_TYPE_UI16:
 		puv = strtoumax(instr, &err, 0);
 		if( puv < UINT16_MAX ) {
 			*(uint16_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case I16:
+	case DD_TYPE_I16:
 		piv = strtoimax(instr, &err, 0);
 		if( piv < INT16_MAX ) {
 			*(int16_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case UI8:
+	case DD_TYPE_UI8:
 		puv = strtoumax(instr, &err, 0);
 		if( puv < UINT8_MAX ) {
 			*(uint8_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case I8:
+	case DD_TYPE_I8:
 		piv = strtoimax(instr, &err, 0);
 		if( piv < INT8_MAX ) {
 			*(int8_t *)outdata = puv;
 			rv = true;
 		}
 		break;
-	case BOOL:
+	case DD_TYPE_BOOL:
 		if ( strcmp(instr, "true") == 0 ) {
 			*(bool *)outdata = true;
 			rv = true;
@@ -901,7 +929,7 @@ bool str_to_dd_type(dd_datafield_t *field, char *instr, char *outdata) {
 			rv = true;
 		}
 		break;
-	case BYTES:
+	case DD_TYPE_BYTES:
 		if ( strlen(instr) % 4 == 0 ) {
 			hex = 0;
 			for(puv = 0; puv < strlen(instr) / 8; puv++) {
@@ -991,47 +1019,47 @@ int add_dd_schema(data_dictionary_t **dd, dd_table_schema_t *schema, dd_table_sc
 
 uint8_t get_dd_field_size(datatype_t type, uint8_t size) {
 	switch (type) {
-	case TIMESTAMP:
+	case DD_TYPE_TIMESTAMP:
 		size = sizeof(struct timespec);
 		break;
 
-	case BOOL:
+	case DD_TYPE_BOOL:
 		size = sizeof(bool);
 		break;
 
-	case UUID:
+	case DD_TYPE_UUID:
 		size = sizeof(uuid_t);
 		break;
 
-	case UI64:
+	case DD_TYPE_UI64:
 		size = sizeof(uint64_t);
 		break;
-	case I64:
+	case DD_TYPE_I64:
 		size = sizeof(int64_t);
 		break;
 
-	case UI32:
+	case DD_TYPE_UI32:
 		size = sizeof(uint32_t);
 		break;
-	case I32:
+	case DD_TYPE_I32:
 		size = sizeof(int32_t);
 		break;
 
-	case UI16:
+	case DD_TYPE_UI16:
 		size = sizeof(uint16_t);
 		break;
-	case I16:
+	case DD_TYPE_I16:
 		size = sizeof(int16_t);
 		break;
 
-	case UI8:
+	case DD_TYPE_UI8:
 		size = sizeof(uint8_t);
 		break;
-	case I8:
+	case DD_TYPE_I8:
 		size = sizeof(int8_t);
 		break;
 
-	case BYTES:
+	case DD_TYPE_BYTES:
 		size = sizeof(unsigned char) * size;
 		break;
 	default:

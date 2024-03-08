@@ -7,8 +7,62 @@
 
 #include "db_interface.h"
 
+bool insert_db_record(db_table_t *tbl, char *record, record_num_t *rn) {
+	bool rv = false;
+	db_indexkey_t *k_list[tbl->num_indexes];
+
+	for (uint8_t i = 0; i < tbl->num_indexes; i++) {
+		k_list[i] = NULL;
+		db_index_t *idx = tbl->indexes[i];
+		if ( idx->idx_schema->is_unique == true ) {
+			db_indexkey_t *k = create_key_from_record_data(tbl->schema, idx->idx_schema, record);
+			k->record = RECORD_NUM_MAX;
+
+			db_indexkey_t *foundkey = NULL;
+			if ( (foundkey = dbidx_find_record(idx, k)) != NULL ) {
+				free(k);
+				return rv;
+			}
+			free(k);
+		}
+	}
+
+	if ( add_db_record(tbl, record, rn) ) {
+		for (uint8_t i = 0; i < tbl->num_indexes; i++) {
+			db_index_t *idx = tbl->indexes[i];
+			db_indexkey_t *key = dbidx_allocate_key(idx->idx_schema);
+			set_key_from_record_slot(tbl, *rn, tbl->indexes[i]->idx_schema, key);
+
+			if ( !dbidx_add_index_value(idx, key) ) {
+				// We need to back out the existing index writes as well as the record
+				free(key);
+				if ( i > 0) {
+					for(uint8_t j = i - 1;; j--) {
+						dbidx_remove_index_value(tbl->indexes[j], k_list[j]);
+						free(k_list[j]);
+						if ( j == 0 )
+							break;
+					}
+				}
+				delete_db_record(tbl, *rn, NULL);
+				return rv;
+			} else
+				k_list[i] = key;
+		}
+		for (uint8_t i = 0; i < tbl->num_indexes; i++)
+			free(k_list[i]);
+		rv = true;
+	}
+
+	return rv;
+}
+
+
 bool add_db_record(db_table_t *tbl, char *record, record_num_t *rv) {
-	*rv = add_db_table_record(tbl, record);
+	if ( tbl->mapped_table == NULL )
+		return false;
+
+	*rv = add_db_table_record(tbl->mapped_table, record);
 	return *rv == RECORD_NUM_MAX ? false : true;
 }
 
@@ -54,6 +108,61 @@ bool close_all_dd_disk_tables(data_dictionary_t *dd) {
 		}
 	}
 	return true;
+}
+
+bool open_shm_table_name(data_dictionary_t *dd, char *table_name, db_table_t **rtbl) {
+	bool rv = false;
+
+	for(uint32_t t = 0; t < dd->num_tables; t++) {
+		if (strcmp(table_name, dd->tables[t].table_name) == 0) {
+			db_table_t *tbl = &dd->tables[t];
+			if (open_dd_shm_table(tbl)){
+				for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+					db_index_t *idx = tbl->indexes[i];
+					if ( idx->root_node == NULL )
+						idx->root_node = dbidx_init_root_node(idx);
+				}
+				if ( rtbl != NULL )
+					*rtbl = tbl;
+				rv = true;
+			}
+		}
+	}
+	return rv;
+}
+
+bool open_shm_table(db_table_t *tbl) {
+	bool rv = false;
+
+	if ( tbl != NULL && tbl->mapped_table == NULL ) {
+		if (open_dd_shm_table(tbl)){
+			for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+				db_index_t *idx = tbl->indexes[i];
+				if ( idx->root_node == NULL )
+					idx->root_node = dbidx_init_root_node(idx);
+			}
+			rv = true;
+		}
+	}
+	return rv;
+}
+
+bool close_shm_table(db_table_t *tbl) {
+	bool rv = false;
+
+	if ( tbl != NULL && tbl->mapped_table != NULL ) {
+		for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+			db_index_t *idx = tbl->indexes[i];
+			if ( idx->root_node != NULL ) {
+				fprintf(stdout, "releasing index %s\n", idx->index_name);
+				dbidx_release_tree(idx, NULL);
+				idx->root_node = NULL;
+			}
+		}
+		close_dd_shm_table(tbl);
+		rv = true;
+	}
+	return rv;
 }
 
 bool load_dd_index_from_table(db_table_t *tbl) {
@@ -121,6 +230,15 @@ bool read_db_record(db_table_t *tbl, record_num_t slot, char **record) {
 	return *record == NULL ? false : true;
 }
 
+record_num_t find_records(db_table_t *tbl, db_index_t *idx, char *record, uint8_t num_key_fields, char **record_list_ptr) {
+	/*
+	 * takes in the table, index, record and the number of index fields to use in a lookup
+	 * returns the number of records found and populates record_list_ptr with pointers to copied records
+	 */
+	record_num_t rv = 0;
+	return rv;
+}
+
 bool delete_db_record(db_table_t *tbl, record_num_t slot, char **deleted_record) {
 	if ( tbl == NULL )
 		return false;
@@ -184,6 +302,7 @@ void set_key_from_record_data(dd_table_schema_t *tbl, db_index_schema_t *idx, ch
 
 db_indexkey_t *create_key_from_record_data(dd_table_schema_t *tbl, db_index_schema_t *idx, char *record) {
 	db_indexkey_t *key = dbidx_allocate_key(idx);
+	key->record = RECORD_NUM_MAX;
 
 	size_t offset;
 	dd_datafield_t *idxfield = NULL;

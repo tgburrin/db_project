@@ -34,10 +34,41 @@ typedef struct DDTableSchema dd_table_schema_t;
 typedef struct DDIndexSchema db_index_schema_t;
 typedef struct DbTable db_table_t;
 typedef struct DbIndex db_index_t;
+typedef struct DbBtNode db_btnode_t;
 typedef struct DbIndexNode db_idxnode_t;
 typedef struct DbIndexKey db_indexkey_t;
 
-typedef enum { STR, TIMESTAMP, BOOL, I8, UI8, I16, UI16, I32, UI32, I64, UI64, UUID, BYTES } datatype_t;
+typedef enum {
+	DD_TYPE_STR,
+	DD_TYPE_TIMESTAMP,
+	DD_TYPE_BOOL,
+
+	DD_TYPE_I8,
+	DD_TYPE_UI8,
+	DD_TYPE_I16,
+	DD_TYPE_UI16,
+	DD_TYPE_I32,
+	DD_TYPE_UI32,
+	DD_TYPE_I64,
+	DD_TYPE_UI64,
+
+	DD_TYPE_UUID,
+	DD_TYPE_BYTES
+} datatype_t;
+
+// this and the item above need to be kept in sync
+extern const char * datatype_names[];
+
+typedef enum {
+	DD_TABLE_TYPE_BOTH,
+	DD_TABLE_TYPE_DISK,
+	DD_TABLE_TYPE_SHM
+} tabletype_t;
+
+typedef enum {
+	DD_IDX_TYPE_BPTIDX,  // binary plus tree idx
+	DD_IDX_TYPE_BNTIDX   // binary node tree idx
+} indextype_t;
 
 /* description structures */
 typedef struct DDDataField {
@@ -75,6 +106,7 @@ typedef struct DbTable {
 
 	db_table_t *mapped_table;
 	int filedes;
+	tabletype_t table_type;
 	size_t filesize;
 
 	pthread_mutex_t read_lock;
@@ -83,12 +115,21 @@ typedef struct DbTable {
 	uint32_t writer_session;
 
 	dd_table_schema_t *schema;
+
 	uint8_t num_indexes;
 	db_index_t **indexes;
+
 	record_num_t *used_slots;
 	record_num_t *free_slots;
 	char *data;
 } db_table_t;
+
+typedef struct DbBtNode {
+	db_btnode_t *right;
+	db_btnode_t *left;
+	record_num_t record;
+	char **data;
+} db_btnode_t;
 
 typedef struct DbIndexNode {
 	bool is_leaf;
@@ -112,7 +153,9 @@ typedef struct DbIndexPosition {
 
 typedef struct DbIndex {
 	char index_name[DB_OBJECT_NAME_SZ];
+	indextype_t index_type;
 	db_idxnode_t *root_node;
+
 	db_index_schema_t *idx_schema;
 	db_table_t *table;
 
@@ -138,14 +181,39 @@ typedef struct DataDictionary {
 	db_table_t *tables;
 } data_dictionary_t;
 
+
+const char *map_enum_to_name(datatype_t);
+
+// comparison functions
+signed char str_compare (const char *, const char *);
+signed char str_compare_sz (const char *, const char *, size_t);
+signed char i64_compare (int64_t *, int64_t *);
+signed char ui64_compare (uint64_t *, uint64_t *);
+signed char i32_compare (int32_t *, int32_t *);
+signed char ui32_compare (uint32_t *, uint32_t *);
+signed char i16_compare (int16_t *, int16_t *);
+signed char ui16_compare (uint16_t *, uint16_t *);
+signed char i8_compare (int8_t *, int8_t *);
+signed char ui8_compare (uint8_t *, uint8_t *);
+signed char bytes_compare(const unsigned char *, const unsigned char *, size_t);
+signed char ts_compare (struct timespec *, struct timespec *);
+
 /* Generic data dictionary - data_dictionary.c */
 data_dictionary_t **init_data_dictionary(uint32_t, uint32_t, uint32_t);
+
 data_dictionary_t **build_dd_from_json(char *);
-data_dictionary_t **build_dd_from_dat(char *);
-void print_data_dictionary(data_dictionary_t *);
-bool write_data_dictionary_dat(data_dictionary_t *, char *);
-void release_data_dictionary(data_dictionary_t **);
 char *read_dd_json_file(char *);
+
+data_dictionary_t **build_dd_from_dat(char *);
+bool write_data_dictionary_dat(data_dictionary_t *, char *);
+
+data_dictionary_t **build_dd_from_json_str(char *);
+
+void print_data_dictionary(data_dictionary_t *);
+void release_data_dictionary(data_dictionary_t **);
+
+// end dd
+
 dd_table_schema_t *init_dd_schema(char *, uint8_t);
 db_table_t *init_db_table(char *, dd_table_schema_t *, record_num_t);
 db_index_t *init_db_idx(char *, uint8_t);
@@ -153,11 +221,13 @@ void set_dd_index_order(db_index_schema_t *, index_order_t);
 dd_datafield_t *init_dd_field_type(char *, datatype_t, uint8_t);
 dd_datafield_t *init_dd_field_str(char *, char *, uint8_t);
 
-const char *map_enum_to_name(datatype_t);
 void idx_key_to_str(db_index_schema_t *, db_indexkey_t *, char *);
 bool dd_type_to_str(dd_datafield_t *, char *, char *);
 bool dd_type_to_allocstr(dd_datafield_t *, char *, char **);
+size_t dd_type_strlen(dd_datafield_t *); // returns the length of the string plus the terminating null;
 bool str_to_dd_type(dd_datafield_t *, char *, char *);
+
+char *make_table_path(const char *, const char *, const char *);
 
 int add_dd_table(data_dictionary_t **, db_table_t *, db_table_t **);
 int add_dd_schema(data_dictionary_t **, dd_table_schema_t *, dd_table_schema_t **);
@@ -173,27 +243,15 @@ dd_table_schema_t *find_dd_schema(data_dictionary_t **, const char *);
 db_index_schema_t *find_dd_idx_schema(db_table_t *, const char *);
 dd_datafield_t *find_dd_field(data_dictionary_t **, const char *);
 
-signed char str_compare (const char *, const char *);
-signed char str_compare_sz (const char *, const char *, size_t);
-
-signed char i64_compare (int64_t *, int64_t *);
-signed char ui64_compare (uint64_t *, uint64_t *);
-signed char i32_compare (int32_t *, int32_t *);
-signed char ui32_compare (uint32_t *, uint32_t *);
-signed char i16_compare (int16_t *, int16_t *);
-signed char ui16_compare (uint16_t *, uint16_t *);
-signed char i8_compare (int8_t *, int8_t *);
-signed char ui8_compare (uint8_t *, uint8_t *);
-
-signed char bytes_compare(const unsigned char *, const unsigned char *, size_t);
-
-signed char ts_compare (struct timespec *, struct timespec *);
 
 /* Table Functions - table_tools.c */
 bool open_dd_table(db_table_t *tablemeta);
 bool open_dd_disk_table(db_table_t *tablemeta);
+bool open_dd_shm_table(db_table_t *tablemeta);
+
 bool close_dd_table(db_table_t *tablemeta);
 bool close_dd_disk_table(db_table_t *tablemeta);
+bool close_dd_shm_table(db_table_t *tablemeta);
 
 record_num_t add_db_table_record(db_table_t *, char *);
 bool delete_db_table_record(db_table_t *, record_num_t, char *);
@@ -201,12 +259,19 @@ char * read_db_table_record(db_table_t *, record_num_t);
 char * new_db_table_record(dd_table_schema_t *);
 void reset_db_table_record(dd_table_schema_t *, char *);
 void release_table_record(dd_table_schema_t *, char *);
+dd_datafield_t *get_db_table_field(dd_table_schema_t *, char *);
 bool set_db_table_record_field(dd_table_schema_t *, char *, char *, char *);
 bool set_db_table_record_field_str(dd_table_schema_t *, char *, char *, char *);
 bool set_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
 bool get_db_table_record_field_num(dd_table_schema_t *, uint8_t, char *, char *);
 
+/* functions for reading a specific field out of a table record */
+bool get_db_table_record_field_value_str_alloc(dd_table_schema_t *, char *, char *, char **);
+bool get_db_table_record_field_value_str(dd_table_schema_t *, char *, char *, char *);
+
 void db_table_record_print(dd_table_schema_t *, char *);
+char *db_table_record_print_alloc(dd_table_schema_t *, char *);
+char *db_table_record_print_line_alloc(dd_table_schema_t *, char *);
 void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);
 
 /* Index Functions - index_tools.c */
@@ -241,6 +306,8 @@ db_indexkey_t *dbidx_find_prev_record(db_index_t *, db_indexkey_t *, db_index_po
 
 uint64_t dbidx_num_child_records(db_idxnode_t *);
 signed char dbidx_find_node_index(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
+signed char dbidx_find_node_index_div(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
+signed char dbidx_find_node_index_add(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
 signed char dbidx_find_node_index_reverse(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *, index_order_t *);
 db_idxnode_t *dbidx_find_node(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);
 db_idxnode_t *dbidx_find_node_reverse(db_index_schema_t *, db_idxnode_t *, db_indexkey_t *);

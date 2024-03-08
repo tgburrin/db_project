@@ -19,59 +19,30 @@
 		"subscription_lifecycle": { "type": "STR", "size": 16 },
 		"churn_type":             { "type": "STR", "size": 16 },
 
-		"client_id":              { "type": "UUID" },
+		"client_id":              { "type": "UI32" },
+		"client_uid":             { "type": "UUID" },
 		"created_dt":             { "type": "TIMESTAMP" },
-		"client_username":	  { "type": "STR", "size": 20 },
-		"client_name":		  { "type": "STR", "size": 32 },
-		"record_counter":	  { "type": "UI64" }
+		"client_username":        { "type": "STR", "size": 20 },
+		"client_name":            { "type": "STR", "size": 32 },
+		"record_counter":         { "type": "UI64" }
 	},
 	"tables": {
-		"subscriptions": {
-			"size": 50,
-			"fields": [
-				"subscription_id",
-				"customer_id",
-				"project_id",
-				"is_active",
-				"product_type",
-				"plan_id",
-				"deferred_plan_id",
-				"currency",
-				"plan_price",
-				"quantity",
-				"term_start",
-				"term_end",
-				"autorenew",
-				"canceled_at",
-				"status",
-				"external_reference",
-				"subscription_lifecycle",
-				"churn_type"
-			],
-			"indexes": {
-				"subscription_id_idx_uq": {
-					"unique": true,
-					"order": 13,
-					"fields": ["subscription_id"]
-				},
-				"project_id_idx": {
-					"unique": false,
-					"fields": ["project_id"]
-				}
-			}
-		},
 		"test_table": {
-			"size": 1000,
+			"size": 25000001,
 			"fields": [
-				"client_id",
+				"client_uid",
 				"created_dt",
 				"client_username",
 				"client_name"
 			],
 			"indexes": {
-				"client_id_id_idx_uq": {
+				"client_uid_idx_uq": {
 					"unique": true,
-					"fields": ["client_id"]
+					"fields": ["client_uid"]
+				},
+				"client_username_idx": {
+					"unique": false,
+					"fields": ["client_username"]
 				}
 			}
 		}
