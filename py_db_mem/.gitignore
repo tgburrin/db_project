@@ -1,5 +1,1 @@
-/Debug/
-/Release/*.[do]
-/Release/*.so
-/Release/
-/test-venv/
+*.so
