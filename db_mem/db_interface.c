@@ -197,14 +197,6 @@ bool load_dd_index_from_table(db_table_t *tbl) {
 	pthread_t tidx[tbl->num_indexes];
 	idxthinfo_t targs[tbl->num_indexes];
 
-	size_t stacksize = 0;
-	pthread_attr_t current_attr;
-	pthread_attr_init(&current_attr);
-	pthread_attr_getstacksize(&current_attr, &stacksize);
-	printf("The current thread stack size is %zu bytes\n", stacksize);
-	// https://stackoverflow.com/questions/15435087/how-to-set-pthread-max-stack-size
-	// Also pthread_attr_setstacksize could work to set the stack size without allocating memory
-
 	bool rv = true;
 	printf("%" PRIu64 " slots to be examined for %" PRIu8 " indexes\n",
 		   (uint64_t) tbl->mapped_table->total_record_count, tbl->num_indexes);
@@ -224,8 +216,6 @@ bool load_dd_index_from_table(db_table_t *tbl) {
 		if (!targs[i].rv)
 			rv = false;
 	}
-
-	pthread_attr_destroy(&current_attr);
 	return rv;
 }
 
@@ -620,11 +610,12 @@ bool read_index_table_records(db_table_t *tbl, db_index_t *idx) {
 		dbidx_add_index_value(idx, key);
 		recordcount++;
 
-		if (recordcount % 100000 == 0)
+		if (recordcount % 1000000 == 0)
 			printf("%" PRIu64 " index records added to %s\n", recordcount, idx->index_name);
 	}
 	free(key);
-	printf("%" PRIu64 " records added to %s\n", (uint64_t) recordcount, idx->index_name);
+	if (recordcount % 1000000 != 0)
+		printf("%" PRIu64 " index records added to %s\n", (uint64_t) recordcount, idx->index_name);
 
 	uint64_t cnt = 0;
 	dbidx_print_tree_totals(idx, NULL, &cnt);

@@ -22,6 +22,7 @@
 #include <stdbool.h>
 #include <regex.h>
 #include <uuid/uuid.h>
+#include <execinfo.h>
 
 #define DEFAULT_BASE "/data/tables"
 #define DEFAULT_SHM "/dev/shm"
@@ -55,5 +56,7 @@ bool parse_timestamp(char *timestr, struct timespec *tm);
 bool parse_utc_timestamp(char *timestr, struct timespec *tm);
 
 void format_timestamp(struct timespec *t, char out[31]);
+
+void print_trace (void);
 
 #endif /* UTILS_H_ */

@@ -372,3 +372,21 @@ void format_timestamp(struct timespec *t, char out[31]) {
 	strftime(out, tmpsize, "%Y-%m-%dT%H:%M:%S.", &tm);
 	sprintf(out + tmpsize - 1, "%09luZ", t->tv_nsec);
 }
+
+void print_trace (void) {
+	void *array[20];
+	char **strings;
+	int size, i;
+
+	size = backtrace (array, 20);
+	strings = backtrace_symbols (array, size);
+	if (strings != NULL)
+	{
+
+		printf ("Obtained %d stack frames.\n", size);
+		for (i = 0; i < size; i++)
+			printf ("%s\n", strings[i]);
+	}
+
+	free (strings);
+}

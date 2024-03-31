@@ -596,7 +596,7 @@ db_table_t *init_db_table(char *table_name, dd_table_schema_t *schema, record_nu
 
 	db_table_t *t = malloc(sizeof(db_table_t));
 	bzero(t, sizeof(db_table_t));
-	mlock(t, sizeof(db_table_t));
+	//mlock(t, sizeof(db_table_t));
 	strcpy(t->table_name, table_name);
 	t->header_size = sizeof(db_table_t);
 	t->total_record_count = size;
@@ -612,7 +612,7 @@ dd_table_schema_t *init_dd_schema(char *schema_name, uint8_t num_fields) {
 	size_t sz = sizeof(dd_table_schema_t);
 	dd_table_schema_t *s = malloc(sz);
 	bzero(s, sz);
-	mlock(s, sz);
+	//mlock(s, sz);
 	strcpy(s->schema_name, schema_name);
 	s->field_count = 0;
 	s->record_size = 0;
@@ -620,7 +620,7 @@ dd_table_schema_t *init_dd_schema(char *schema_name, uint8_t num_fields) {
 	s->fields = NULL;
 	if (num_fields > 0) {
 		s->fields = calloc(sizeof(dd_datafield_t *), num_fields);
-		mlock(*s->fields, sizeof(*s->fields));
+		//mlock(*s->fields, sizeof(*s->fields));
 	}
 	return s;
 }
@@ -633,7 +633,7 @@ db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
 
 	idx = (db_index_t *) malloc(memsz);
 	bzero(idx, memsz);
-	mlock(idx, memsz);
+	//mlock(idx, memsz);
 
 	idxschema = (db_index_schema_t *) ((char *) idx + sizeof(db_index_t));
 	idxschema->fields = (dd_datafield_t **) ((char *) idxschema + sizeof(db_index_schema_t));
@@ -645,7 +645,7 @@ db_index_t *init_db_idx(char *index_name, uint8_t num_fields) {
 	set_dd_index_order(idxschema, 5);
 
 	idxschema->fields = calloc(num_fields, sizeof(dd_datafield_t *));
-	mlock(*idxschema->fields, sizeof(*idxschema->fields));
+	//mlock(*idxschema->fields, sizeof(*idxschema->fields));
 	idx->idx_schema = idxschema;
 	idx->root_node = NULL;
 	return idx;
@@ -664,7 +664,7 @@ dd_datafield_t *init_dd_field_type(char *field_name, datatype_t type, uint8_t si
 	size_t sz = sizeof(dd_datafield_t);
 	dd_datafield_t *f = malloc(sz);
 	bzero(f, sz);
-	mlock(f, sz);
+	//mlock(f, sz);
 	strcpy(f->field_name, field_name);
 	f->field_sz = get_dd_field_size(type, size);
 	f->fieldtype = type;

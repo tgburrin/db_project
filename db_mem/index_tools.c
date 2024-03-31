@@ -13,15 +13,19 @@ db_idxnode_t * dbidx_init_root_node(db_index_t *idx) {
 
 db_idxnode_t *dbidx_allocate_node(db_index_schema_t *idx) {
 	db_idxnode_t *rv = NULL;
+	uint8_t attempts = 0;
 
 	if ( idx == NULL )
 		return rv;
 
-	if ( (rv = malloc(idx->nodekey_size)) == NULL )
-        fprintf(stderr, "Error while allocating node memory: %s\n", strerror(errno));
+	if((rv = malloc(idx->nodekey_size)) == NULL) {
+		fprintf(stderr, "Error while allocating node memory: %s\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
 	bzero(rv, idx->nodekey_size);
-	mlock(rv, idx->nodekey_size);
-	madvise(rv, idx->nodekey_size, MADV_UNMERGEABLE);
+	//mlock(rv, idx->nodekey_size);
+	//madvise(rv, idx->nodekey_size, MADV_UNMERGEABLE);
 	rv->parent = NULL;
 	rv->next = NULL;
 	rv->prev = NULL;
@@ -82,7 +86,7 @@ char *dbidx_allocate_node_block(db_index_schema_t *idx, record_num_t num_table_r
 	rv = malloc(idx->nodekey_size * num_nodes );
 	//rv = mmap(NULL, idx->nodekey_size * num_nodes, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
 	bzero(rv, idx->nodekey_size * num_nodes);
-	mlock(rv, idx->nodekey_size * num_nodes);
+	//mlock(rv, idx->nodekey_size * num_nodes);
 	for(uint64_t i = 0; i < num_nodes; i++) {
 		offset = (db_idxnode_t *)((char *)rv + (i * idx->nodekey_size));
 		offset->parent = NULL;
@@ -121,7 +125,7 @@ void dbidx_reset_key_with_data(db_index_schema_t *idx, db_indexkey_t *key) {
 db_indexkey_t *dbidx_allocate_key(db_index_schema_t *idx) {
 	db_indexkey_t *rv = malloc(idx->key_size);
 	bzero(rv, idx->key_size);
-	mlock(rv, idx->key_size);
+	//mlock(rv, idx->key_size);
 	rv->childnode = NULL;
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
 	return rv;
@@ -147,7 +151,7 @@ db_indexkey_t *dbidx_allocate_key_with_data(db_index_schema_t *idx) {
 
 	rv = malloc(keysz);
 	bzero(rv, keysz);
-	mlock(rv, keysz);
+	//mlock(rv, keysz);
 	rv->data = (char **)((char *)rv + sizeof(db_indexkey_t));
 	rv->data[0] = (char *)rv + sizeof(db_indexkey_t) + sizeof(char *) * idx->num_fields;
 	for(uint8_t i = 1; i < idx->num_fields; i++)
