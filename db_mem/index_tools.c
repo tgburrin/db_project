@@ -1,4 +1,5 @@
 #include "data_dictionary.h"
+#include "db_interface.h"
 
 db_idxnode_t * dbidx_init_root_node(db_index_t *idx) {
 	db_idxnode_t *idxnode = NULL;
@@ -1267,6 +1268,14 @@ void dbidx_write_file_records(db_index_t *idx) {
 		printf("%" PRIu64 " records of size %lu written\n", recordcount, sizeof(uint64_t));
 	}
 	free(idxfile);
+}
+
+void *dbidx_write_file_records_thread(void *args) {
+	idxthinfo_t *idx_info = (struct idxthinfo *)args;
+	printf("Writing index %s.%s to disk\n", idx_info->tbl->table_name, idx_info->idx->index_name);
+	dbidx_write_file_records(idx_info->idx);
+	idx_info->rv = true;
+	pthread_exit(NULL);
 }
 
 void dbidx_write_file_keys(db_index_t *idx) {

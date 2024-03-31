@@ -505,12 +505,12 @@ int main(int argc, char **argv) {
 
 	//if ( !load_all_dd_disk_tables(*data_dictionary) )
 	//	exit(EXIT_FAILURE);
+	/*
 	if (!open_all_dd_shm_tables(*data_dictionary))
 		exit(EXIT_FAILURE);
-	/*
+	*/
 	if ( !load_all_dd_tables(*data_dictionary) )
 		exit(EXIT_FAILURE);
-	*/
 	printf("All lables opened\n");
 
 	/* sets up regular expressions for parsing time */
@@ -520,13 +520,14 @@ int main(int argc, char **argv) {
 	bzero(&jnl, sizeof(journal_t));
 
 	db_table_t *tbl = NULL;
+	/*
 	for (uint32_t i = 0; i < (*data_dictionary)->num_tables; i++) {
 		tbl = &(*data_dictionary)->tables[i];
 		printf("Loading indexes for table %s\n", tbl->table_name);
 		load_dd_indexes(tbl);
 	}
 	printf("Indexes loaded\n");
-
+	*/
 	//new_journal(&jnl);
 
 	//del_subscription(st, &subid_idx, &custid_idx, &s);
@@ -610,10 +611,11 @@ int main(int argc, char **argv) {
 		}
 	}
 	*/
+
 	printf("Closing tables\n");
 	//close_all_dd_disk_tables(*data_dictionary);
-	//close_all_dd_tables(*data_dictionary);
-	close_all_dd_shm_tables(*data_dictionary);
+	close_all_dd_tables(*data_dictionary);
+	//close_all_dd_shm_tables(*data_dictionary);
 
 	/*
 	for(uint32_t t = 0; t < (*data_dictionary)->num_tables; t++)

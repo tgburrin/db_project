@@ -374,6 +374,7 @@ void format_timestamp(struct timespec *t, char out[31]) {
 }
 
 void print_trace (void) {
+	// This should be improved a bit further to show the calling function names as well
 	void *array[20];
 	char **strings;
 	int size, i;

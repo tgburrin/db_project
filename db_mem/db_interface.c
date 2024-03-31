@@ -67,22 +67,59 @@ bool add_db_record(db_table_t *tbl, char *record, record_num_t *rv) {
 }
 
 bool load_all_dd_tables(data_dictionary_t *dd) {
-	printf("Opening %" PRIu32 " tables from the data dictionary\n", dd->num_tables);
+	db_table_t *tbl = NULL;
+	db_index_t *idx = NULL;
+	uint64_t idxcnt = 0;
+	for(uint32_t t = 0; t < dd->num_tables; t++)
+		idxcnt += dd->tables[t].num_indexes;
+
+	printf("Opening %" PRIu32 " tables and %" PRIu64 " indexes from the data dictionary\n",
+		   dd->num_tables,
+		   idxcnt);
+
 	for (uint32_t i = 0; i < dd->num_tables; i++) {
-		if (!open_dd_table(&dd->tables[i])) {
+		tbl = &dd->tables[i];
+		if (!open_dd_table(tbl)) {
 			fprintf(stderr, "failed to load table %s\n", dd->tables[i].table_name);
 			return false;
 		} else
 			printf("Opened table %s\n", dd->tables[i].table_name);
+
+		load_dd_indexes(tbl);
 	}
 	return true;
 }
 
 bool close_all_dd_tables(data_dictionary_t *dd) {
-	printf("Closing %" PRIu32 " tables from the data dictionary\n", dd->num_tables);
-	for (uint32_t i = 0; i < dd->num_tables; i++) {
-		if (!close_dd_table(&dd->tables[i])) {
-			fprintf(stderr, "failed to close table %s\n", dd->tables[i].table_name);
+	db_table_t *tbl = NULL;
+	db_index_t *idx = NULL;
+	uint64_t idxcnt = 0;
+
+	for(uint32_t t = 0; t < dd->num_tables; t++)
+		idxcnt += dd->tables[t].num_indexes;
+
+	printf("Closing %" PRIu32 " tables and %" PRIu64 " indexes from the data dictionary\n",
+		   dd->num_tables,
+		   idxcnt);
+
+	for(uint32_t t = 0; t < dd->num_tables; t++) {
+		tbl = &dd->tables[t];
+		pthread_t idxworker[tbl->num_indexes];
+		idxthinfo_t idxinfo[tbl->num_indexes];
+		for(uint8_t i = 0; i < tbl->num_indexes; i++) {
+			idx = tbl->indexes[i];
+			idxinfo[i].rv = false;
+			idxinfo[i].idx = idx;
+			idxinfo[i].tbl = tbl;
+			pthread_create(&idxworker[i], NULL, dbidx_write_file_records_thread, &idxinfo[i]);
+			// dbidx_write_file_records(idx);
+		}
+		for(uint8_t i = 0; i < tbl->num_indexes; i++)
+			pthread_join(idxworker[i], NULL);
+
+		printf("Writing table %s to disk\n", tbl->table_name);
+		if (!close_dd_table(tbl)) {
+			fprintf(stderr, "failed to close table %s\n", tbl->table_name);
 			return false;
 		}
 	}

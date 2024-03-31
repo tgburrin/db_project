@@ -321,6 +321,8 @@ char *db_table_record_print_line_alloc(dd_table_schema_t *, char *);
 void db_table_record_str(dd_table_schema_t *, char *, char *, size_t);
 
 /* Index Functions - index_tools.c */
+bool open_dd_index(db_index_t *);
+
 db_idxnode_t *dbidx_init_root_node(db_index_t *);
 
 db_idxnode_t *dbidx_allocate_node(db_index_schema_t *);
@@ -402,6 +404,8 @@ void dbidx_print_tree_totals(db_index_t *, db_idxnode_t *, uint64_t *);
 void dbidx_print_index_scan_lookup(db_index_t *idx, db_indexkey_t *key);
 
 void dbidx_write_file_records(db_index_t *);
+
+void *dbidx_write_file_records_thread(void *args);
 
 void dbidx_write_file_keys(db_index_t *);
 
