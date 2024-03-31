@@ -31,7 +31,7 @@ typedef bool (*message_handler_f)(
 		void **,  // handler args
 		char *,   // error message
 		size_t    // error message size
-	);
+);
 
 struct Server {
 	bool running;
@@ -56,9 +56,13 @@ typedef struct MessageHandlerList {
 } message_handler_list_t;
 
 bool create_api_message(cJSON **);
+
 bool format_error_reponse(char *, char *, size_t);
-int init_server_socket (void);
-bool start_application (message_handler_list_t *);
-uint16_t process_message (message_handler_list_t *, char *, char **, char **);
+
+int init_server_socket(void);
+
+bool start_application(message_handler_list_t *);
+
+uint16_t process_message(message_handler_list_t *, char *, char **, char **);
 
 #endif /* SERVER_TOOLS_H_ */

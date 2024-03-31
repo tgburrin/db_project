@@ -32,13 +32,20 @@ typedef struct JournalRecord {
 	char *objdata;
 } journal_record_t;
 
-bool new_journal (journal_t *j);
-bool open_journal (journal_t *j);
+bool new_journal(journal_t *j);
+
+bool open_journal(journal_t *j);
+
 bool journal_sync_off(journal_t *j);
+
 bool journal_sync_on(journal_t *j);
-void close_journal (journal_t *);
-journal_record_t *read_journal (journal_t *j);
+
+void close_journal(journal_t *);
+
+journal_record_t *read_journal(journal_t *j);
+
 bool write_journal_record(journal_t *j, journal_record_t *jr);
+
 void print_journal_record(journal_record_t *jr);
 
 #endif /* JOURNAL_TOOLS_H_ */

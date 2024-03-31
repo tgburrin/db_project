@@ -28,7 +28,7 @@
 	},
 	"tables": {
 		"test_table": {
-			"size": 25000001,
+			"size": 125000001,
 			"fields": [
 				"client_uid",
 				"created_dt",

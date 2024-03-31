@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(db_server C)
 
 set(CMAKE_C_STANDARD 23)
+set(CMAKE_BUILD_TYPE Debug)
 
 find_library(cjson cjson)
 find_library(uuid uuid)

@@ -37,14 +37,23 @@ struct timespec;
 extern regex_t datetime_expr, date_expr, time_expr;
 
 bool init_common(void);
+
 bool cleanup_common(void);
+
 size_t initialize_file(char *filepath, size_t sz, int *rfd);
+
 int copy_and_replace_file(char *src_path, char *dst_path, char *filename);
+
 int move_and_replace_file(char *src_path, char *dst_path, char *filename);
+
 bool is_utc_timestamp(char *timestr);
+
 bool parse_date(char *datestr, struct timespec *tm);
+
 bool parse_timestamp(char *timestr, struct timespec *tm);
+
 bool parse_utc_timestamp(char *timestr, struct timespec *tm);
+
 void format_timestamp(struct timespec *t, char out[31]);
 
 #endif /* UTILS_H_ */

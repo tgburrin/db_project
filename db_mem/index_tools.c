@@ -17,7 +17,8 @@ db_idxnode_t *dbidx_allocate_node(db_index_schema_t *idx) {
 	if ( idx == NULL )
 		return rv;
 
-	rv = malloc(idx->nodekey_size);
+	if ( (rv = malloc(idx->nodekey_size)) == NULL )
+        fprintf(stderr, "Error while allocating node memory: %s\n", strerror(errno));
 	bzero(rv, idx->nodekey_size);
 	mlock(rv, idx->nodekey_size);
 	madvise(rv, idx->nodekey_size, MADV_UNMERGEABLE);
