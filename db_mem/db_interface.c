@@ -458,22 +458,19 @@ bool init_index_block(db_table_t *tbl, db_index_t *idx) {
 }
 
 bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
+	if (tbl == NULL || tbl->mapped_table == NULL || idx == NULL)
+		return false;
+
 	char *ipth;
 	if ((ipth = getenv("TABLE_DATA")) == NULL)
 		ipth = DEFAULT_BASE;
 
 	int fd = -1;
 	size_t sz = strlen(ipth) + 1 + strlen(idx->index_name) + 5;
+	char *idxfile = malloc(sz);
+	snprintf(idxfile, sz, "%s/%s.idx", ipth, idx->index_name);
 
-	// path + '/' + name + '.idx' + \0
-	char *record, *idxfile = malloc(sz);
 	db_indexkey_t *findkey = dbidx_allocate_key(idx->idx_schema);
-	bzero(idxfile, sz);
-
-	strcat(idxfile, ipth);
-	strcat(idxfile, "/");
-	strcat(idxfile, idx->index_name);
-	strcat(idxfile, ".idx");
 
 	printf("Reading keys from file %s\n", idxfile);
 	int i = access(idxfile, F_OK);
@@ -500,6 +497,7 @@ bool read_index_file_records(db_table_t *tbl, db_index_t *idx) {
 		current = start;
 		current->is_leaf = true;
 		current->prev = NULL;
+		char *record = NULL;
 
 		for (counter = 0; counter < recordcount; counter++) {
 			if (read(fd, &record_number, sizeof(record_num_t)) != sizeof(record_num_t)) {
